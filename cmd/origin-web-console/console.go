@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/util/logs"
 
-	webconsolecmd "github.com/openshift/origin-web-console/pkg/assets/apiserver/cmd"
+	webconsolecmd "github.com/openshift/origin-web-console-server/pkg/assets/apiserver/cmd"
 	"github.com/openshift/origin/pkg/cmd/util/serviceability"
 )
 

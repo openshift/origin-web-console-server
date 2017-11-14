@@ -15,7 +15,7 @@ import (
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/util"
 
-	webconsoleserver "github.com/openshift/origin-web-console/pkg/assets/apiserver"
+	webconsoleserver "github.com/openshift/origin-web-console-server/pkg/assets/apiserver"
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	configapiinstall "github.com/openshift/origin/pkg/cmd/server/api/install"
 	configapivalidation "github.com/openshift/origin/pkg/cmd/server/api/validation"
