@@ -10,7 +10,7 @@ build-image: build
 .PHONY: build-image
 
 verify: build
-	go test github.com/openshift/iorigin-web-console-server/pkg/...
+	go test github.com/openshift/origin-web-console-server/pkg/...
 .PHONY: verify
 
 clean:
