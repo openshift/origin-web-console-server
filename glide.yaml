@@ -1,7 +1,12 @@
 package: github.com/openshift/origin-web-console-server
 import:
+- package: github.com/jteeuwen/go-bindata
+  version: v3.0.x
+- package: github.com/docker/distribution
+  repo:    git@github.com:openshift/docker-distribution
+  version: 1e2bbed6e09c6c8047f52af965a6e301f346d04e
 - package: github.com/openshift/origin
-  version: 13add5260c879b5d0072c1e3d8d9050f9090a36d
+  version: 94489ce93721fa92c4c60f5b55a6eca476f92bbb
 - package: k8s.io/kubernetes
   repo:    git@github.com:openshift/kubernetes
   version: release-1.7.6
