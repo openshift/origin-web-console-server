@@ -1,5 +1,5 @@
-hash: 696ff14f863c86582bb5f57836be4b4cd32d9b273a01c61ed2d66a0e5150f7e9
-updated: 2017-11-15T15:39:15.400984424-05:00
+hash: 5890975196e2d42548b641deb51395aebde342a0eb749b97192c4763d8774ea1
+updated: 2017-11-15T16:06:39.067275189-05:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -396,7 +396,7 @@ imports:
 - name: github.com/jonboulle/clockwork
   version: 3f831b65b61282ba6bece21b91beea2edc4c887a
 - name: github.com/jteeuwen/go-bindata
-  version: bbd0c6e271208dce66d8fda4bc536453cd27fc4a
+  version: a0ff2567cfb70903282db057e799fd826784d41d
 - name: github.com/juju/ratelimit
   version: 5b9ff866471762aa2ab2dced63c9fb6f53921342
 - name: github.com/libopenstorage/openstorage
