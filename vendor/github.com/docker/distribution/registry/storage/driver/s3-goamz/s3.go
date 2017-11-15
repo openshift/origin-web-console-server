@@ -14,7 +14,6 @@ package s3
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -24,12 +23,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/goamz/aws"
+	"github.com/docker/goamz/s3"
+
+	"github.com/docker/distribution/context"
 	"github.com/docker/distribution/registry/client/transport"
 	storagedriver "github.com/docker/distribution/registry/storage/driver"
 	"github.com/docker/distribution/registry/storage/driver/base"
 	"github.com/docker/distribution/registry/storage/driver/factory"
-	"github.com/docker/goamz/aws"
-	"github.com/docker/goamz/s3"
 )
 
 const driverName = "s3goamz"
@@ -265,8 +266,10 @@ func New(params DriverParameters) (*Driver, error) {
 
 	if params.V4Auth {
 		s3obj.Signature = aws.V4Signature
-	} else if mustV4Auth(params.Region.Name) {
-		return nil, fmt.Errorf("The %s region only works with v4 authentication", params.Region.Name)
+	} else {
+		if params.Region.Name == "eu-central-1" {
+			return nil, fmt.Errorf("The eu-central-1 region only works with v4 authentication")
+		}
 	}
 
 	bucket := s3obj.Bucket(params.Bucket)
@@ -440,13 +443,13 @@ func (d *driver) List(ctx context.Context, opath string) ([]string, error) {
 			directories = append(directories, strings.Replace(commonPrefix[0:len(commonPrefix)-1], d.s3Path(""), prefix, 1))
 		}
 
-		if !listResponse.IsTruncated {
+		if listResponse.IsTruncated {
+			listResponse, err = d.Bucket.List(d.s3Path(path), "/", listResponse.NextMarker, listMax)
+			if err != nil {
+				return nil, err
+			}
+		} else {
 			break
-		}
-
-		listResponse, err = d.Bucket.List(d.s3Path(path), "/", listResponse.NextMarker, listMax)
-		if err != nil {
-			return nil, err
 		}
 	}
 
@@ -554,6 +557,11 @@ func parseError(path string, err error) error {
 	return err
 }
 
+func hasCode(err error, code string) bool {
+	s3err, ok := err.(*aws.Error)
+	return ok && s3err.Code == code
+}
+
 func (d *driver) getOptions() s3.Options {
 	return s3.Options{
 		SSE:          d.Encrypt,
@@ -563,17 +571,6 @@ func (d *driver) getOptions() s3.Options {
 
 func getPermissions() s3.ACL {
 	return s3.Private
-}
-
-// mustV4Auth checks whether must use v4 auth in specific region.
-// Please see documentation at http://docs.aws.amazon.com/general/latest/gr/signature-version-2.html
-func mustV4Auth(region string) bool {
-	switch region {
-	case "eu-central-1", "cn-north-1", "us-east-2",
-		"ca-central-1", "ap-south-1", "ap-northeast-2", "eu-west-2":
-		return true
-	}
-	return false
 }
 
 func (d *driver) getContentType() string {

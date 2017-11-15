@@ -223,9 +223,9 @@ notifications:
       disabled: false
       url: https://my.listener.com/event
       headers: <http.Header>
-      timeout: 1s
-      threshold: 10
-      backoff: 1s
+      timeout: 500
+      threshold: 5
+      backoff: 1000
       ignoredmediatypes:
         - application/octet-stream
 redis:
@@ -268,6 +268,7 @@ compatibility:
   schema1:
     signingkeyfile: /etc/registry/key.json
 validation:
+  enabled: true
   manifests:
     urls:
       allow:
@@ -552,7 +553,7 @@ The `auth` option is **optional**. Possible auth providers include:
 
 - [`silly`](#silly)
 - [`token`](#token)
-- [`htpasswd`](#htpasswd)
+- [`htpasswd`](#token)
 
 You can configure only one authentication provider.
 
@@ -816,9 +817,9 @@ notifications:
       disabled: false
       url: https://my.listener.com/event
       headers: <http.Header>
-      timeout: 1s
-      threshold: 10
-      backoff: 1s
+      timeout: 500
+      threshold: 5
+      backoff: 1000
       ignoredmediatypes:
         - application/octet-stream
 ```
@@ -947,7 +948,7 @@ a file.
 | Parameter | Required | Description                                           |
 |-----------|----------|-------------------------------------------------------|
 | `file`    | yes      | The path to check for existence of a file.            |
-| `interval`| no       | How long to wait before repeating the check. A positive integer and an optional suffix indicating the unit of time. The suffix is one of `ns`, `us`, `ms`, `s`, `m`, or `h`. Defaults to `10s` if the value is omitted. If you specify a value but omit the suffix, the value is interpreted as a number of nanoseconds. |
+| `interval`| no       | How long to wait before repeating the check. A positive integer and an optional suffix indicating the unit of time. The suffix is one of `ns`, `us`, `ms`, `s`, `m`, or `h`. Defaults to `10s` if the value is omitted. |
 
 ### `http`
 
@@ -1027,6 +1028,7 @@ features. Each subsection defines such a feature with configurable behavior.
 
 ```none
 validation:
+  enabled: true
   manifests:
     urls:
       allow:
@@ -1035,15 +1037,14 @@ validation:
         - ^https?://www\.example\.com/
 ```
 
-### `disabled`
+### `enabled`
 
-The `disabled` flag disables the other options in the `validation`
-section. They are enabled by default. This option deprecates the `enabled` flag.
+Use the `enabled` flag to enable the other options in the `validation`
+section. They are disabled by default.
 
 ### `manifests`
 
-Use the `manifests` subsection to configure validation of manifests. If
-`disabled` is `false`, the validation allows nothing.
+Use the `manifest` subsection to configure manifest validation.
 
 #### `urls`
 
@@ -1109,7 +1110,7 @@ middleware:
       baseurl: http://d111111abcdef8.cloudfront.net
       privatekey: /path/to/asecret.pem
       keypairid: asecret
-      duration: 60s
+      duration: 60
 ```
 
 See the configuration reference for [Cloudfront](#cloudfront) for more

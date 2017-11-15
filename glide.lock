@@ -1,5 +1,5 @@
-hash: 7dc99a6b0a4e5164a20af983d3d013d26df5199d80edd3aefff9b41d7306a1ae
-updated: 2017-11-14T14:23:02.29527631-05:00
+hash: 696ff14f863c86582bb5f57836be4b4cd32d9b273a01c61ed2d66a0e5150f7e9
+updated: 2017-11-15T15:39:15.400984424-05:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -208,52 +208,11 @@ imports:
 - name: github.com/dgrijalva/jwt-go
   version: 01aeca54ebda6e0fbfafd0a524d234159c05ec20
 - name: github.com/docker/distribution
-  version: ""
+  version: 1e2bbed6e09c6c8047f52af965a6e301f346d04e
+  repo: git@github.com:openshift/docker-distribution
   subpackages:
-  - configuration
-  - context
   - digest
-  - digestset
-  - health
-  - health/checks
-  - manifest
-  - manifest/manifestlist
-  - manifest/schema1
-  - manifest/schema2
-  - notifications
   - reference
-  - registry/api/errcode
-  - registry/api/v2
-  - registry/auth
-  - registry/auth/htpasswd
-  - registry/auth/token
-  - registry/client
-  - registry/client/auth
-  - registry/client/auth/challenge
-  - registry/client/transport
-  - registry/handlers
-  - registry/middleware/registry
-  - registry/middleware/repository
-  - registry/proxy
-  - registry/proxy/scheduler
-  - registry/storage
-  - registry/storage/cache
-  - registry/storage/cache/memory
-  - registry/storage/cache/redis
-  - registry/storage/driver
-  - registry/storage/driver/azure
-  - registry/storage/driver/base
-  - registry/storage/driver/factory
-  - registry/storage/driver/filesystem
-  - registry/storage/driver/gcs
-  - registry/storage/driver/inmemory
-  - registry/storage/driver/middleware
-  - registry/storage/driver/middleware/cloudfront
-  - registry/storage/driver/oss
-  - registry/storage/driver/s3-aws
-  - registry/storage/driver/swift
-  - uuid
-  - version
 - name: github.com/docker/engine-api
   version: dea108d3aa0c67d7162a3fd8aa65f38a430019fd
   subpackages:
@@ -437,7 +396,7 @@ imports:
 - name: github.com/jonboulle/clockwork
   version: 3f831b65b61282ba6bece21b91beea2edc4c887a
 - name: github.com/jteeuwen/go-bindata
-  version: a0ff2567cfb70903282db057e799fd826784d41d
+  version: bbd0c6e271208dce66d8fda4bc536453cd27fc4a
 - name: github.com/juju/ratelimit
   version: 5b9ff866471762aa2ab2dced63c9fb6f53921342
 - name: github.com/libopenstorage/openstorage
@@ -475,10 +434,8 @@ imports:
   version: 53818660ed4955e899c0bcafa97299a388bd7c8e
 - name: github.com/mreiferson/go-httpclient
   version: 31f0106b4474f14bc441575c19d3a5fa21aa1f6c
-- name: github.com/opencontainers/go-digest
-  version: a6d0ee40d4207ea02364bd3b9e8e77b9159ba1eb
 - name: github.com/openshift/origin
-  version: 13add5260c879b5d0072c1e3d8d9050f9090a36d
+  version: 94489ce93721fa92c4c60f5b55a6eca476f92bbb
   subpackages:
   - pkg/api
   - pkg/api/apihelpers
@@ -781,7 +738,7 @@ imports:
   - pubsub/v1
   - storage/v1
 - name: google.golang.org/appengine
-  version: 4f7eeb5305a4ba1966344836ba4af9996b7b4e05
+  version: 12d5545dc1cfa6047a286d5e853841b6471f4c19
   subpackages:
   - internal
   - internal/app_identity

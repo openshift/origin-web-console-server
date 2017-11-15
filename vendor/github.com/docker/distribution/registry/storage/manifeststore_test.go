@@ -2,12 +2,13 @@ package storage
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"reflect"
 	"testing"
 
 	"github.com/docker/distribution"
+	"github.com/docker/distribution/context"
+	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/manifest"
 	"github.com/docker/distribution/manifest/schema1"
 	"github.com/docker/distribution/reference"
@@ -16,7 +17,6 @@ import (
 	"github.com/docker/distribution/registry/storage/driver/inmemory"
 	"github.com/docker/distribution/testutil"
 	"github.com/docker/libtrust"
-	"github.com/opencontainers/go-digest"
 )
 
 type manifestStoreTestEnv struct {
@@ -60,7 +60,7 @@ func TestManifestStorage(t *testing.T) {
 }
 
 func testManifestStorage(t *testing.T, options ...RegistryOption) {
-	repoName, _ := reference.WithName("foo/bar")
+	repoName, _ := reference.ParseNamed("foo/bar")
 	env := newManifestStoreTestEnv(t, repoName, "thetag", options...)
 	ctx := context.Background()
 	ms, err := env.repository.Manifests(ctx)
