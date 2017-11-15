@@ -13,7 +13,6 @@ package s3
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -34,6 +33,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 
+	"github.com/docker/distribution/context"
 	"github.com/docker/distribution/registry/client/transport"
 	storagedriver "github.com/docker/distribution/registry/storage/driver"
 	"github.com/docker/distribution/registry/storage/driver/base"
@@ -98,7 +98,6 @@ type DriverParameters struct {
 	StorageClass                string
 	UserAgent                   string
 	ObjectACL                   string
-	SessionToken                string
 }
 
 func init() {
@@ -108,9 +107,7 @@ func init() {
 		"us-west-1",
 		"us-west-2",
 		"eu-west-1",
-		"eu-west-2",
 		"eu-central-1",
-		"ap-south-1",
 		"ap-southeast-1",
 		"ap-southeast-2",
 		"ap-northeast-1",
@@ -118,7 +115,6 @@ func init() {
 		"sa-east-1",
 		"cn-north-1",
 		"us-gov-west-1",
-		"ca-central-1",
 	} {
 		validRegions[region] = struct{}{}
 	}
@@ -332,8 +328,6 @@ func FromParameters(parameters map[string]interface{}) (*Driver, error) {
 		objectACL = objectACLString
 	}
 
-	sessionToken := ""
-
 	params := DriverParameters{
 		fmt.Sprint(accessKey),
 		fmt.Sprint(secretKey),
@@ -352,7 +346,6 @@ func FromParameters(parameters map[string]interface{}) (*Driver, error) {
 		storageClass,
 		fmt.Sprint(userAgent),
 		objectACL,
-		fmt.Sprint(sessionToken),
 	}
 
 	return New(params)
@@ -402,7 +395,6 @@ func New(params DriverParameters) (*Driver, error) {
 			Value: credentials.Value{
 				AccessKeyID:     params.AccessKey,
 				SecretAccessKey: params.SecretKey,
-				SessionToken:    params.SessionToken,
 			},
 		},
 		&credentials.EnvProvider{},
@@ -706,11 +698,15 @@ func (d *driver) copy(ctx context.Context, sourcePath string, destPath string) e
 		return nil
 	}
 
+	// Even in the worst case, a multipart copy should take no more
+	// than a few minutes, so 30 minutes is very conservative.
+	expires := time.Now().Add(time.Duration(30) * time.Minute)
 	createResp, err := d.S3.CreateMultipartUpload(&s3.CreateMultipartUploadInput{
 		Bucket:               aws.String(d.Bucket),
 		Key:                  aws.String(d.s3Path(destPath)),
 		ContentType:          d.getContentType(),
 		ACL:                  d.getACL(),
+		Expires:              aws.Time(expires),
 		SSEKMSKeyId:          d.getSSEKMSKeyID(),
 		ServerSideEncryption: d.getEncryptionMode(),
 		StorageClass:         d.getStorageClass(),

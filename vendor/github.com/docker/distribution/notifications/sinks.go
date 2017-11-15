@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/Sirupsen/logrus"
 )
 
 // NOTE(stevvooe): This file contains definitions for several utility sinks.
@@ -151,7 +151,7 @@ func (eq *eventQueue) Write(events ...Event) error {
 	return nil
 }
 
-// Close shuts down the event queue, flushing
+// Close shutsdown the event queue, flushing
 func (eq *eventQueue) Close() error {
 	eq.mu.Lock()
 	defer eq.mu.Unlock()
