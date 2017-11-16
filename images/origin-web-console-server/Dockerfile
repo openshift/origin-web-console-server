@@ -6,7 +6,10 @@
 #
 FROM openshift/origin-base
 
-ADD bin/origin-web-console-server /usr/bin/origin-web-console-server
+RUN INSTALL_PKGS="origin-web-console-server" && \
+    yum --enablerepo=origin-local-release install -y ${INSTALL_PKGS} && \
+    rpm -V ${INSTALL_PKGS} && \
+    yum clean all
 
 LABEL io.k8s.display-name="OpenShift Web Console" \
       io.k8s.description="This is a component of OpenShift Container Platform and provides a web console." \
@@ -16,4 +19,4 @@ LABEL io.k8s.display-name="OpenShift Web Console" \
 USER 1001
 EXPOSE 5000
 
-CMD [ "/usr/bin/origin-web-console-server" ]
+CMD [ "/usr/bin/origin-web-console" ]

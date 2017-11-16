@@ -6,6 +6,8 @@ The API server for the [OpenShift web console](https://github.com/openshift/orig
 
 [![Build Status](https://travis-ci.org/openshift/origin-web-console-server.svg?branch=master)](https://travis-ci.org/openshift/origin-web-console-server)
 
+**Under Construction**
+
 The web console server runs as a pod on the platform. The OpenShift master
 proxies requests from the web console context root, typically `/console/`, to
 the server running in the pod. The pod then serves the static HTML, JavaScript,
@@ -16,22 +18,26 @@ The web console assets themselves are developed in the
 repository. They are included in the web console server binary using
 [go-bindata](https://github.com/jteeuwen/go-bindata).
 
-**Note**: This is a work in progress. Before OpenShift 3.8, the web console
-asset server was part of master itself and did not run in a pod.
+Building
+--------
 
-Building the Image
-------------------
-
-You will need to install [Go](https://golang.org/) 1.8 and Docker to build the image.
-
-On Linux, build the image with
+To build the binary, run
 
 ```
-$ make build-image
+$ make
 ```
 
-On other platforms, you'll need to cross-compile a Linux binary with the command
+To build the RPM and images, run
 
 ```
-$ GOOS=linux GOARCH=amd64 make build-image
+$ make build-images
 ```
+
+Note: You must be on a Linux system for `make build-images` to work since it
+builds an RPM and then an image from the RPM.
+
+Updating Go Tooling
+-------------------
+
+See https://github.com/openshift/release/tree/master/tools/hack/golang for
+instructions on how to update the Go tooling used by this project.

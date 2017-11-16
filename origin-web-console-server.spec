@@ -49,14 +49,14 @@
 %global golang_version 1.8.1
 %{!?version: %global version 0.0.1}
 %{!?release: %global release 1}
-%global package_name origin-web-console-server # PACKAGE_NAME
-%global product_name TODO # PRODUCT_NAME
-%global import_path TODO # GO_PACKAGE
+%global package_name origin-web-console-server
+%global product_name OpenShift Web Console
+%global import_path github.com/openshift/origin-web-console-server
 
 Name:           %{package_name}
 Version:        %{version}
 Release:        %{release}%{?dist}
-Summary:        TODO
+Summary:        Web Console for the OpenShift Application Platform
 License:        ASL 2.0
 URL:            https://%{import_path}
 
@@ -73,7 +73,8 @@ ExclusiveArch:  x86_64 aarch64 ppc64le s390x
 ### AUTO-BUNDLED-GEN-ENTRY-POINT
 
 %description
-TODO
+OpenShift is a distribution of Kubernetes optimized for enterprise application
+development and deployment. This is the web console server for OpenShift.
 
 %prep
 %if 0%{do_prep}
@@ -112,7 +113,7 @@ PLATFORM="$(go env GOHOSTOS)/$(go env GOHOSTARCH)"
 install -d %{buildroot}%{_bindir}
 
 # Install linux components
-for bin in TODO
+for bin in origin-web-console
 do
   echo "+++ INSTALLING ${bin}"
   install -p -m 755 _output/local/bin/${PLATFORM}/${bin} %{buildroot}%{_bindir}/${bin}
@@ -128,7 +129,7 @@ done
 %files
 %doc README.md
 %license LICENSE
-%{_bindir}/TODO
+%{_bindir}/origin-web-console
 # EXAMPLE: Managing configuration
 # %defattr(-,root,root,0700)
 # %dir %config(noreplace) %{_sysconfdir}/origin
@@ -138,5 +139,5 @@ done
 %pre
 
 %changelog
-* Mon Nov 06 2017 Anonymous <anon@nowhere.com> 0.0.1
-- Initial example of spec.
+* Thu Nov 16 2017 Samuel Padgett <spadgett@redhat.com> 0.0.1
+- Initial spec.
