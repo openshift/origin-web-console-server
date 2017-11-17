@@ -33,8 +33,12 @@ To build the RPM and images, run
 $ make build-images
 ```
 
-Note: You must be on a Linux system for `make build-images` to work since it
-builds an RPM and then an image from the RPM.
+If you are running on a non-Linux platform, you can build the images in a
+container with this command
+
+```
+$ OS_BUILD_ENV_PRESERVE=_output/local/bin hack/env make build-images
+```
 
 Updating Go Tooling
 -------------------
