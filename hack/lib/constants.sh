@@ -93,6 +93,8 @@ function os::util::list_go_src_files() {
 		\( \
 		-wholename './_output' \
 		-o -wholename './.*' \
+                -o -wholename './pkg/assets/bindata.go' \
+                -o -wholename './pkg/assets/*/bindata.go' \
 		-o -wholename '*/vendor/*' \
 		\) -prune \
 	\) -name '*.go' | sort -u
