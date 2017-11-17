@@ -25,9 +25,9 @@ import (
 	kapi "k8s.io/kubernetes/pkg/api"
 	kversion "k8s.io/kubernetes/pkg/version"
 
-	"github.com/openshift/origin/pkg/api"
 	"github.com/openshift/origin-web-console-server/pkg/assets"
 	"github.com/openshift/origin-web-console-server/pkg/assets/java"
+	"github.com/openshift/origin/pkg/api"
 	oapi "github.com/openshift/origin/pkg/cmd/server/api"
 	"github.com/openshift/origin/pkg/cmd/server/crypto"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
