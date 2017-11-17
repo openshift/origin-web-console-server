@@ -49,7 +49,7 @@
 %global golang_version 1.8.1
 %{!?version: %global version 0.0.1}
 %{!?release: %global release 1}
-%global package_name origin-web-console-server
+%global package_name origin-web-console
 %global product_name OpenShift Web Console
 %global import_path github.com/openshift/origin-web-console-server
 
