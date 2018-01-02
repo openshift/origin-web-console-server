@@ -129,13 +129,6 @@ func (c completedAssetServerConfig) New(delegationTarget genericapiserver.Delega
 	if err := c.addAssets(s.GenericAPIServer.Handler.NonGoRestfulMux); err != nil {
 		return nil, err
 	}
-	if err := c.addExtensionScripts(s.GenericAPIServer.Handler.NonGoRestfulMux); err != nil {
-		return nil, err
-	}
-	if err := c.addExtensionStyleSheets(s.GenericAPIServer.Handler.NonGoRestfulMux); err != nil {
-		return nil, err
-	}
-	c.addExtensionFiles(s.GenericAPIServer.Handler.NonGoRestfulMux)
 	if err := c.addWebConsoleConfig(s.GenericAPIServer.Handler.NonGoRestfulMux); err != nil {
 		return nil, err
 	}
@@ -171,41 +164,6 @@ func (c completedAssetServerConfig) addAssets(serverMux *genericmux.PathRecorder
 	serverMux.UnlistedHandlePrefix(c.PublicURL.Path, http.StripPrefix(c.PublicURL.Path, assetHandler))
 	serverMux.UnlistedHandle(c.PublicURL.Path[0:len(c.PublicURL.Path)-1], http.RedirectHandler(c.PublicURL.Path, http.StatusMovedPermanently))
 	return nil
-}
-
-func (c completedAssetServerConfig) addExtensionScripts(serverMux *genericmux.PathRecorderMux) error {
-	// Extension scripts
-	extScriptsPath := path.Join(c.PublicURL.Path, "scripts/extensions.js")
-	extScriptsHandler, err := assets.ExtensionScriptsHandler(c.Options.ExtensionScripts, c.Options.ExtensionDevelopment)
-	if err != nil {
-		return err
-	}
-	extScriptsHandler = assets.SecurityHeadersHandler(extScriptsHandler)
-	serverMux.UnlistedHandle(extScriptsPath, assets.GzipHandler(extScriptsHandler))
-	return nil
-}
-
-func (c completedAssetServerConfig) addExtensionStyleSheets(serverMux *genericmux.PathRecorderMux) error {
-	// Extension stylesheets
-	extStylesheetsPath := path.Join(c.PublicURL.Path, "styles/extensions.css")
-	extStylesheetsHandler, err := assets.ExtensionStylesheetsHandler(c.Options.ExtensionStylesheets, c.Options.ExtensionDevelopment)
-	if err != nil {
-		return err
-	}
-	extStylesheetsHandler = assets.SecurityHeadersHandler(extStylesheetsHandler)
-	serverMux.UnlistedHandle(extStylesheetsPath, assets.GzipHandler(extStylesheetsHandler))
-	return nil
-}
-
-func (c completedAssetServerConfig) addExtensionFiles(serverMux *genericmux.PathRecorderMux) {
-	// Extension files
-	for _, extConfig := range c.Options.Extensions {
-		extBasePath := path.Join(c.PublicURL.Path, "extensions", extConfig.Name)
-		extPath := extBasePath + "/"
-		extHandler := assets.AssetExtensionHandler(extConfig.SourceDirectory, extPath, extConfig.HTML5Mode)
-		serverMux.UnlistedHandlePrefix(extPath, http.StripPrefix(extBasePath, extHandler))
-		serverMux.UnlistedHandle(extBasePath, http.RedirectHandler(extPath, http.StatusMovedPermanently))
-	}
 }
 
 func (c *completedAssetServerConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorderMux) error {
@@ -266,7 +224,7 @@ func (c completedAssetServerConfig) buildAssetHandler() (http.Handler, error) {
 	}
 
 	var err error
-	handler, err = assets.HTML5ModeHandler(c.PublicURL.Path, subcontextMap, handler, assetFunc)
+	handler, err = assets.HTML5ModeHandler(c.PublicURL.Path, subcontextMap, c.Options.ExtensionScripts, c.Options.ExtensionStylesheets, handler, assetFunc)
 	if err != nil {
 		return nil, err
 	}

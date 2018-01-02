@@ -502,13 +502,15 @@ func ValidateAssetConfig(config *api.AssetConfig, fldPath *field.Path) Validatio
 		validationResults.AddWarnings(field.Invalid(fldPath.Child("metricsPublicURL"), "", "required to view cluster metrics in the console"))
 	}
 
-	for i, scriptFile := range config.ExtensionScripts {
-		validationResults.AddErrors(ValidateFile(scriptFile, fldPath.Child("extensionScripts").Index(i))...)
-	}
+	// FIXME: Temporarily turn off validation since these are now treated as URLs.
+	//        We will fix when we update the AssetConfig for the new extension script URL / style URL property names.
+	// for i, scriptFile := range config.ExtensionScripts {
+	// 	validationResults.AddErrors(ValidateFile(scriptFile, fldPath.Child("extensionScripts").Index(i))...)
+	// }
 
-	for i, stylesheetFile := range config.ExtensionStylesheets {
-		validationResults.AddErrors(ValidateFile(stylesheetFile, fldPath.Child("extensionStylesheets").Index(i))...)
-	}
+	// for i, stylesheetFile := range config.ExtensionStylesheets {
+	// 	validationResults.AddErrors(ValidateFile(stylesheetFile, fldPath.Child("extensionStylesheets").Index(i))...)
+	// }
 
 	nameTaken := map[string]bool{}
 	for i, extConfig := range config.Extensions {

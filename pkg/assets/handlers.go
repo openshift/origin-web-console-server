@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"path"
@@ -112,7 +113,7 @@ func (s LongestToShortest) Less(i, j int) bool {
 //
 // subcontextMap is a map of keys (subcontexts, no leading or trailing slashes) to the asset path (no
 // leading slash) to serve for that subcontext if a resource that does not exist is requested
-func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, h http.Handler, getAsset AssetFunc) (http.Handler, error) {
+func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, extensionScripts []string, extensionStylesheets []string, h http.Handler, getAsset AssetFunc) (http.Handler, error) {
 	subcontextData := map[string][]byte{}
 	subcontexts := []string{}
 
@@ -127,6 +128,17 @@ func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, h htt
 			base += "/"
 		}
 		b = bytes.Replace(b, []byte(`<base href="/">`), []byte(fmt.Sprintf(`<base href="%s">`, base)), 1)
+
+		// Inject extension scripts and stylesheets, but only for the console itself, which has an empty subcontext
+		if len(subcontext) == 0 {
+			if len(extensionScripts) > 0 {
+				b = addExtensionScripts(b, extensionScripts)
+			}
+			if len(extensionStylesheets) > 0 {
+				b = addExtensionStylesheets(b, extensionStylesheets)
+			}
+		}
+
 		subcontextData[subcontext] = b
 		subcontexts = append(subcontexts, subcontext)
 	}
@@ -151,6 +163,30 @@ func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, h htt
 		}
 		h.ServeHTTP(w, r)
 	}), nil
+}
+
+// Add the extension scripts as the last scripts, just before the body closing tag.
+func addExtensionScripts(content []byte, extensionScripts []string) []byte {
+	var scriptTags bytes.Buffer
+	for _, scriptURL := range extensionScripts {
+		scriptTags.WriteString(fmt.Sprintf("<script src=\"%s\"></script>\n", html.EscapeString(scriptURL)))
+	}
+
+	replaceBefore := []byte("</body>")
+	scriptTags.Write(replaceBefore)
+	return bytes.Replace(content, replaceBefore, scriptTags.Bytes(), 1)
+}
+
+// Add the extension stylesheets as the last stylesheets, just before the head closing tag.
+func addExtensionStylesheets(content []byte, extensionStylesheets []string) []byte {
+	var styleTags bytes.Buffer
+	for _, stylesheetURL := range extensionStylesheets {
+		styleTags.WriteString(fmt.Sprintf("<link rel=\"stylesheet\" href=\"%s\">\n", html.EscapeString(stylesheetURL)))
+	}
+
+	replaceBefore := []byte("</head>")
+	styleTags.Write(replaceBefore)
+	return bytes.Replace(content, replaceBefore, styleTags.Bytes(), 1)
 }
 
 var versionTemplate = template.Must(template.New("webConsoleVersion").Parse(`
