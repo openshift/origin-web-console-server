@@ -1,15 +1,11 @@
 package apiserver
 
 import (
-	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"path"
-	"strconv"
 
 	"github.com/elazarl/go-bindata-assetfs"
-	"github.com/golang/glog"
 
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
@@ -18,9 +14,7 @@ import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
 	genericmux "k8s.io/apiserver/pkg/server/mux"
-	genericapiserveroptions "k8s.io/apiserver/pkg/server/options"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	utilflag "k8s.io/apiserver/pkg/util/flag"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	kversion "k8s.io/kubernetes/pkg/version"
 
@@ -28,7 +22,6 @@ import (
 	"github.com/openshift/origin-web-console-server/pkg/assets/java"
 	"github.com/openshift/origin/pkg/api"
 	oapi "github.com/openshift/origin/pkg/cmd/server/api"
-	"github.com/openshift/origin/pkg/cmd/server/crypto"
 	oauthutil "github.com/openshift/origin/pkg/oauth/util"
 	"github.com/openshift/origin/pkg/util/httprequest"
 	oversion "github.com/openshift/origin/pkg/version"
@@ -68,41 +61,12 @@ type CompletedConfig struct {
 func NewAssetServerConfig(assetConfig oapi.AssetConfig) (*AssetServerConfig, error) {
 	publicURL, err := url.Parse(assetConfig.PublicURL)
 	if err != nil {
-		glog.Fatal(err)
-	}
-	_, portString, err := net.SplitHostPort(assetConfig.ServingInfo.BindAddress)
-	if err != nil {
 		return nil, err
-	}
-	port, err := strconv.Atoi(portString)
-	if err != nil {
-		return nil, err
-	}
-	secureServingOptions := genericapiserveroptions.NewSecureServingOptions()
-	secureServingOptions.BindPort = port
-	secureServingOptions.ServerCert.CertKey.CertFile = assetConfig.ServingInfo.ServerCert.CertFile
-	secureServingOptions.ServerCert.CertKey.KeyFile = assetConfig.ServingInfo.ServerCert.KeyFile
-	for _, nc := range assetConfig.ServingInfo.NamedCertificates {
-		sniCert := utilflag.NamedCertKey{
-			CertFile: nc.CertFile,
-			KeyFile:  nc.KeyFile,
-			Names:    nc.Names,
-		}
-		secureServingOptions.SNICertKeys = append(secureServingOptions.SNICertKeys, sniCert)
 	}
 
 	genericConfig := genericapiserver.NewConfig(legacyscheme.Codecs)
 	genericConfig.EnableDiscovery = false
 	genericConfig.BuildHandlerChainFunc = buildHandlerChainForAssets(publicURL.Path)
-	if err := secureServingOptions.ApplyTo(genericConfig); err != nil {
-		return nil, err
-	}
-	genericConfig.SecureServingInfo.Listener, err = net.Listen(assetConfig.ServingInfo.BindNetwork, assetConfig.ServingInfo.BindAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to listen on %v: %v", assetConfig.ServingInfo.BindAddress, err)
-	}
-	genericConfig.SecureServingInfo.MinTLSVersion = crypto.TLSVersionOrDie(assetConfig.ServingInfo.MinTLSVersion)
-	genericConfig.SecureServingInfo.CipherSuites = crypto.CipherSuitesOrDie(assetConfig.ServingInfo.CipherSuites)
 
 	return &AssetServerConfig{
 		GenericConfig: &genericapiserver.RecommendedConfig{Config: *genericConfig},

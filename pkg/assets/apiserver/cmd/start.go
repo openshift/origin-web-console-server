@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
+	"strconv"
 
 	"github.com/golang/glog"
 	"github.com/spf13/cobra"
@@ -12,13 +14,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	genericapiserver "k8s.io/apiserver/pkg/server"
+	genericapiserveroptions "k8s.io/apiserver/pkg/server/options"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
+	utilflag "k8s.io/apiserver/pkg/util/flag"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/util"
 
 	webconsoleserver "github.com/openshift/origin-web-console-server/pkg/assets/apiserver"
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	configapiinstall "github.com/openshift/origin/pkg/cmd/server/api/install"
 	configapivalidation "github.com/openshift/origin/pkg/cmd/server/api/validation"
+	"github.com/openshift/origin/pkg/cmd/server/crypto"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
@@ -114,17 +119,60 @@ func (o *WebConsoleServerOptions) Complete(cmd *cobra.Command) error {
 }
 
 func (o WebConsoleServerOptions) Config() (*webconsoleserver.AssetServerConfig, error) {
+	// all this work is ordinarily done by using the default flags to configure the listener options
+	// instead of doing that, we're keeping the config inside of a single config file, so we're doing this
+	// transformation here.
+	bindHost, portString, err := net.SplitHostPort(o.WebConsoleConfig.ServingInfo.BindAddress)
+	if err != nil {
+		return nil, err
+	}
+	port, err := strconv.Atoi(portString)
+	if err != nil {
+		return nil, err
+	}
+	sniCertKeys := []utilflag.NamedCertKey{}
+	for _, nc := range o.WebConsoleConfig.ServingInfo.NamedCertificates {
+		sniCert := utilflag.NamedCertKey{
+			CertFile: nc.CertFile,
+			KeyFile:  nc.KeyFile,
+			Names:    nc.Names,
+		}
+		sniCertKeys = append(sniCertKeys, sniCert)
+	}
+	secureServingOptions := &genericapiserveroptions.SecureServingOptions{
+		BindAddress: net.ParseIP(bindHost),
+		BindPort:    port,
+		BindNetwork: o.WebConsoleConfig.ServingInfo.BindNetwork,
+
+		ServerCert: genericapiserveroptions.GeneratableKeyCert{
+			CertKey: genericapiserveroptions.CertKey{
+				CertFile: o.WebConsoleConfig.ServingInfo.ServerCert.CertFile,
+				KeyFile:  o.WebConsoleConfig.ServingInfo.ServerCert.KeyFile,
+			},
+		},
+		SNICertKeys: sniCertKeys,
+	}
+
 	serverConfig, err := webconsoleserver.NewAssetServerConfig(*o.WebConsoleConfig)
 	if err != nil {
 		return nil, err
 	}
 
+	if err := secureServingOptions.ApplyTo(&serverConfig.GenericConfig.Config); err != nil {
+		return nil, err
+	}
 	if err := o.Audit.ApplyTo(&serverConfig.GenericConfig.Config); err != nil {
 		return nil, err
 	}
 	if err := o.Features.ApplyTo(&serverConfig.GenericConfig.Config); err != nil {
 		return nil, err
 	}
+
+	// all this work is ordinarily done by using the default flags to configure the listener options
+	// instead of doing that, we're keeping the config inside of a single config file, so we're doing this
+	// transformation here.
+	serverConfig.GenericConfig.SecureServingInfo.MinTLSVersion = crypto.TLSVersionOrDie(o.WebConsoleConfig.ServingInfo.MinTLSVersion)
+	serverConfig.GenericConfig.SecureServingInfo.CipherSuites = crypto.CipherSuitesOrDie(o.WebConsoleConfig.ServingInfo.CipherSuites)
 
 	return serverConfig, nil
 }
