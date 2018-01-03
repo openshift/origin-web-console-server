@@ -10,7 +10,7 @@ import (
 	"github.com/golang/glog"
 
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/kubernetes/pkg/util/logs"
+	"k8s.io/apiserver/pkg/util/logs"
 
 	webconsolecmd "github.com/openshift/origin-web-console-server/pkg/assets/apiserver/cmd"
 	"github.com/openshift/origin/pkg/cmd/util/serviceability"

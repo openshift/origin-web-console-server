@@ -119,10 +119,10 @@ func (o WebConsoleServerOptions) Config() (*webconsoleserver.AssetServerConfig, 
 		return nil, err
 	}
 
-	if err := o.Audit.ApplyTo(serverConfig.GenericConfig); err != nil {
+	if err := o.Audit.ApplyTo(&serverConfig.GenericConfig.Config); err != nil {
 		return nil, err
 	}
-	if err := o.Features.ApplyTo(serverConfig.GenericConfig); err != nil {
+	if err := o.Features.ApplyTo(&serverConfig.GenericConfig.Config); err != nil {
 		return nil, err
 	}
 
