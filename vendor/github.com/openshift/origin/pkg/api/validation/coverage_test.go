@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 
 	"github.com/openshift/origin/pkg/api"
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
@@ -20,7 +20,7 @@ import (
 // reason.
 var KnownValidationExceptions = []reflect.Type{
 	reflect.TypeOf(&buildapi.BuildLog{}),                              // masks calls to a build subresource
-	reflect.TypeOf(&deployapi.DeploymentLog{}),                        // masks calls to a deploymentConfig subresource
+	reflect.TypeOf(&appsapi.DeploymentLog{}),                          // masks calls to a deploymentConfig subresource
 	reflect.TypeOf(&imageapi.ImageStreamImage{}),                      // this object is only returned, never accepted
 	reflect.TypeOf(&imageapi.ImageStreamTag{}),                        // this object is only returned, never accepted
 	reflect.TypeOf(&authorizationapi.IsPersonalSubjectAccessReview{}), // only an api type for runtime.EmbeddedObject, never accepted
@@ -38,7 +38,7 @@ var MissingValidationExceptions = []reflect.Type{
 }
 
 func TestCoverage(t *testing.T) {
-	for kind, apiType := range kapi.Scheme.KnownTypes(api.SchemeGroupVersion) {
+	for kind, apiType := range legacyscheme.Scheme.KnownTypes(api.SchemeGroupVersion) {
 		if strings.HasPrefix(apiType.PkgPath(), "github.com/openshift/origin/vendor/") {
 			continue
 		}

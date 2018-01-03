@@ -18,10 +18,10 @@ import (
 	auditvalidation "k8s.io/apiserver/pkg/apis/audit/validation"
 	auditpolicy "k8s.io/apiserver/pkg/audit/policy"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/cert"
 	apiserveroptions "k8s.io/kubernetes/cmd/kube-apiserver/app/options"
 	kcmoptions "k8s.io/kubernetes/cmd/kube-controller-manager/app/options"
-	kvalidation "k8s.io/kubernetes/pkg/api/validation"
-	"k8s.io/kubernetes/pkg/serviceaccount"
+	kvalidation "k8s.io/kubernetes/pkg/apis/core/validation"
 
 	"github.com/openshift/origin/pkg/cmd/server/api"
 	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
@@ -432,7 +432,7 @@ func ValidateServiceAccountConfig(config api.ServiceAccountConfig, builtInKubern
 		privateKeyFilePath := fldPath.Child("privateKeyFile")
 		if fileErrs := ValidateFile(config.PrivateKeyFile, privateKeyFilePath); len(fileErrs) > 0 {
 			validationResults.AddErrors(fileErrs...)
-		} else if _, err := serviceaccount.ReadPrivateKey(config.PrivateKeyFile); err != nil {
+		} else if _, err := cert.PrivateKeyFromFile(config.PrivateKeyFile); err != nil {
 			validationResults.AddErrors(field.Invalid(privateKeyFilePath, config.PrivateKeyFile, err.Error()))
 		}
 	} else if builtInKubernetes {
@@ -446,7 +446,7 @@ func ValidateServiceAccountConfig(config api.ServiceAccountConfig, builtInKubern
 		idxPath := fldPath.Child("publicKeyFiles").Index(i)
 		if fileErrs := ValidateFile(publicKeyFile, idxPath); len(fileErrs) > 0 {
 			validationResults.AddErrors(fileErrs...)
-		} else if _, err := serviceaccount.ReadPublicKeys(publicKeyFile); err != nil {
+		} else if _, err := cert.PublicKeysFromFile(publicKeyFile); err != nil {
 			validationResults.AddErrors(field.Invalid(idxPath, publicKeyFile, err.Error()))
 		}
 	}
@@ -502,15 +502,13 @@ func ValidateAssetConfig(config *api.AssetConfig, fldPath *field.Path) Validatio
 		validationResults.AddWarnings(field.Invalid(fldPath.Child("metricsPublicURL"), "", "required to view cluster metrics in the console"))
 	}
 
-	// FIXME: Temporarily turn off validation since these are now treated as URLs.
-	//        We will fix when we update the AssetConfig for the new extension script URL / style URL property names.
-	// for i, scriptFile := range config.ExtensionScripts {
-	// 	validationResults.AddErrors(ValidateFile(scriptFile, fldPath.Child("extensionScripts").Index(i))...)
-	// }
+	for i, scriptFile := range config.ExtensionScripts {
+		validationResults.AddErrors(ValidateFile(scriptFile, fldPath.Child("extensionScripts").Index(i))...)
+	}
 
-	// for i, stylesheetFile := range config.ExtensionStylesheets {
-	// 	validationResults.AddErrors(ValidateFile(stylesheetFile, fldPath.Child("extensionStylesheets").Index(i))...)
-	// }
+	for i, stylesheetFile := range config.ExtensionStylesheets {
+		validationResults.AddErrors(ValidateFile(stylesheetFile, fldPath.Child("extensionStylesheets").Index(i))...)
+	}
 
 	nameTaken := map[string]bool{}
 	for i, extConfig := range config.Extensions {

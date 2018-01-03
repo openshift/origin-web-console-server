@@ -12,11 +12,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientgotesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kcorelisters "k8s.io/kubernetes/pkg/client/listers/core/internalversion"
 
+	quotaapiv1 "github.com/openshift/api/quota/v1"
 	quotaapi "github.com/openshift/origin/pkg/quota/apis/quota"
-	quotaapiv1 "github.com/openshift/origin/pkg/quota/apis/quota/v1"
 	"github.com/openshift/origin/pkg/quota/controller/clusterquotamapping"
 	fakequotaclient "github.com/openshift/origin/pkg/quota/generated/internalclientset/fake"
 	quotalister "github.com/openshift/origin/pkg/quota/generated/listers/quota/internalversion"
@@ -135,12 +136,12 @@ func TestUpdateQuota(t *testing.T) {
 			}
 		}
 
-		expectedV1, err := kapi.Scheme.ConvertToVersion(tc.expectedQuota(), quotaapiv1.SchemeGroupVersion)
+		expectedV1, err := legacyscheme.Scheme.ConvertToVersion(tc.expectedQuota(), quotaapiv1.SchemeGroupVersion)
 		if err != nil {
 			t.Errorf("%s: unexpected error: %v", tc.name, err)
 			continue
 		}
-		actualV1, err := kapi.Scheme.ConvertToVersion(actualQuota, quotaapiv1.SchemeGroupVersion)
+		actualV1, err := legacyscheme.Scheme.ConvertToVersion(actualQuota, quotaapiv1.SchemeGroupVersion)
 		if err != nil {
 			t.Errorf("%s: unexpected error: %v", tc.name, err)
 			continue
@@ -327,12 +328,12 @@ func TestGetQuota(t *testing.T) {
 		if !equality.Semantic.DeepEqual(expectedQuotas, actualQuotaPointers) {
 			t.Errorf("%s: expectedLen: %v actualLen: %v", tc.name, len(expectedQuotas), len(actualQuotas))
 			for i := range expectedQuotas {
-				expectedV1, err := kapi.Scheme.ConvertToVersion(expectedQuotas[i], quotaapiv1.SchemeGroupVersion)
+				expectedV1, err := legacyscheme.Scheme.ConvertToVersion(expectedQuotas[i], quotaapiv1.SchemeGroupVersion)
 				if err != nil {
 					t.Errorf("%s: unexpected error: %v", tc.name, err)
 					continue
 				}
-				actualV1, err := kapi.Scheme.ConvertToVersion(actualQuotaPointers[i], quotaapiv1.SchemeGroupVersion)
+				actualV1, err := legacyscheme.Scheme.ConvertToVersion(actualQuotaPointers[i], quotaapiv1.SchemeGroupVersion)
 				if err != nil {
 					t.Errorf("%s: unexpected error: %v", tc.name, err)
 					continue

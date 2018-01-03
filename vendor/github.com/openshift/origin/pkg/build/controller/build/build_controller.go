@@ -8,24 +8,24 @@ import (
 
 	"github.com/golang/glog"
 	metrics "github.com/openshift/origin/pkg/build/metrics/prometheus"
+	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/apimachinery/pkg/util/wait"
+	kexternalcoreinformers "k8s.io/client-go/informers/core/v1"
+	kexternalclientset "k8s.io/client-go/kubernetes"
+	kexternalcoreclient "k8s.io/client-go/kubernetes/typed/core/v1"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
-	clientv1 "k8s.io/client-go/pkg/api/v1"
+	v1lister "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
-	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
-	kexternalclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
-	kexternalcoreclient "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/core/v1"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
-	kexternalcoreinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions/core/v1"
-	v1lister "k8s.io/kubernetes/pkg/client/listers/core/v1"
 
 	"github.com/openshift/origin/pkg/api/meta"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
@@ -41,7 +41,6 @@ import (
 	buildlister "github.com/openshift/origin/pkg/build/generated/listers/build/internalversion"
 	buildgenerator "github.com/openshift/origin/pkg/build/generator"
 	buildutil "github.com/openshift/origin/pkg/build/util"
-	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
 	imageinformers "github.com/openshift/origin/pkg/image/generated/informers/internalversion/image/internalversion"
 	imagelister "github.com/openshift/origin/pkg/image/generated/listers/image/internalversion"
@@ -203,7 +202,7 @@ func NewBuildController(params *BuildControllerParams) *BuildController {
 		imageStreamQueue: newResourceTriggerQueue(),
 		buildConfigQueue: workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
 
-		recorder:    eventBroadcaster.NewRecorder(kapi.Scheme, clientv1.EventSource{Component: "build-controller"}),
+		recorder:    eventBroadcaster.NewRecorder(legacyscheme.Scheme, v1.EventSource{Component: "build-controller"}),
 		runPolicies: policy.GetAllRunPolicies(buildLister, buildClient),
 	}
 
@@ -214,6 +213,7 @@ func NewBuildController(params *BuildControllerParams) *BuildController {
 	c.buildInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    c.buildAdded,
 		UpdateFunc: c.buildUpdated,
+		DeleteFunc: c.buildDeleted,
 	})
 	params.ImageStreamInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    c.imageStreamAdded,
@@ -427,7 +427,7 @@ func (bc *BuildController) handleNewBuild(build *buildapi.Build, pod *v1.Pod) (*
 	// means that the build is active and its status should be updated
 	if pod != nil {
 		//TODO: Use a better way to determine whether the pod corresponds to the build (maybe using the owner field)
-		if !pod.CreationTimestamp.Before(build.CreationTimestamp) {
+		if !pod.CreationTimestamp.Before(&build.CreationTimestamp) {
 			return bc.handleActiveBuild(build, pod)
 		}
 		// If a pod was created before the current build, move the build to error
@@ -494,7 +494,7 @@ func (bc *BuildController) createPodSpec(build *buildapi.Build) (*v1.Pod, error)
 func (bc *BuildController) resolveImageSecretAsReference(build *buildapi.Build, imagename string) (*kapi.LocalObjectReference, error) {
 	serviceAccount := build.Spec.ServiceAccount
 	if len(serviceAccount) == 0 {
-		serviceAccount = bootstrappolicy.BuilderServiceAccountName
+		serviceAccount = buildutil.BuilderServiceAccountName
 	}
 	builderSecrets, err := buildgenerator.FetchServiceAccountSecrets(bc.kubeClient.Core(), bc.kubeClient.Core(), build.Namespace, serviceAccount)
 	if err != nil {
@@ -749,10 +749,9 @@ func (bc *BuildController) createBuildPod(build *buildapi.Build) (*buildUpdate, 
 
 	// image reference resolution requires a copy of the build
 	var err error
-	build, err = buildutil.BuildDeepCopy(build)
-	if err != nil {
-		return nil, fmt.Errorf("unable to copy build %s: %v", buildDesc(build), err)
-	}
+
+	// TODO: Rename this to buildCopy
+	build = build.DeepCopy()
 
 	// Resolve all Docker image references to valid values.
 	if err := bc.resolveImageReferences(build, update); err != nil {
@@ -872,7 +871,7 @@ func (bc *BuildController) createBuildPod(build *buildapi.Build) (*buildUpdate, 
 
 			// If the existing pod was created before this build, switch to the Error state.
 			existingPod, err := bc.podClient.Pods(build.Namespace).Get(buildPod.Name, metav1.GetOptions{})
-			if err == nil && existingPod.CreationTimestamp.Before(build.CreationTimestamp) {
+			if err == nil && existingPod.CreationTimestamp.Before(&build.CreationTimestamp) {
 				update = transitionToPhase(buildapi.BuildPhaseError, buildapi.StatusReasonBuildPodExists, buildapi.StatusMessageBuildPodExists)
 				return update, nil
 			}
@@ -1069,9 +1068,13 @@ func (bc *BuildController) handleBuildConfig(bcNamespace string, bcName string) 
 		return err
 	}
 	glog.V(5).Infof("Build config %s/%s: has %d next builds, is running builds: %v", bcNamespace, bcName, len(nextBuilds), hasRunningBuilds)
-	if len(nextBuilds) == 0 && hasRunningBuilds {
+	if hasRunningBuilds {
 		glog.V(4).Infof("Build config %s/%s has running builds, will retry", bcNamespace, bcName)
 		return fmt.Errorf("build config %s/%s has running builds and cannot run more builds", bcNamespace, bcName)
+	}
+	if len(nextBuilds) == 0 {
+		glog.V(4).Infof("Build config %s/%s has no builds to run next, will retry", bcNamespace, bcName)
+		return fmt.Errorf("build config %s/%s has no builds to run next", bcNamespace, bcName)
 	}
 
 	// Enqueue any builds to build next
@@ -1086,10 +1089,7 @@ func (bc *BuildController) handleBuildConfig(bcNamespace string, bcName string) 
 // and applies that patch using the REST client
 func (bc *BuildController) patchBuild(build *buildapi.Build, update *buildUpdate) (*buildapi.Build, error) {
 	// Create a patch using the buildUpdate object
-	updatedBuild, err := buildutil.BuildDeepCopy(build)
-	if err != nil {
-		return nil, fmt.Errorf("cannot create a deep copy of build %s: %v", buildDesc(build), err)
-	}
+	updatedBuild := build.DeepCopy()
 	update.apply(updatedBuild)
 
 	patch, err := validation.CreateBuildPatch(build, updatedBuild)
@@ -1177,6 +1177,29 @@ func (bc *BuildController) buildAdded(obj interface{}) {
 func (bc *BuildController) buildUpdated(old, cur interface{}) {
 	build := cur.(*buildapi.Build)
 	bc.enqueueBuild(build)
+}
+
+// buildDeleted is called by the build informer event handler whenever a build
+// is deleted
+func (bc *BuildController) buildDeleted(obj interface{}) {
+	build, ok := obj.(*buildapi.Build)
+	if !ok {
+		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			utilruntime.HandleError(fmt.Errorf("couldn't get object from tombstone: %+v", obj))
+			return
+		}
+		build, ok = tombstone.Obj.(*buildapi.Build)
+		if !ok {
+			utilruntime.HandleError(fmt.Errorf("tombstone contained object that is not a pod: %+v", obj))
+			return
+		}
+	}
+	// If the build was not in a complete state, poke the buildconfig to run the next build
+	if !buildutil.IsBuildComplete(build) {
+		bcName := buildutil.ConfigNameForBuild(build)
+		bc.enqueueBuildConfig(build.Namespace, bcName)
+	}
 }
 
 // enqueueBuild adds the given build to the buildQueue.

@@ -10,10 +10,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
+	kclientsetexternal "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	cmappoptions "k8s.io/kubernetes/cmd/kube-controller-manager/app/options"
 	"k8s.io/kubernetes/pkg/apis/componentconfig"
-	kclientsetexternal "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/controller"
 
 	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
@@ -24,10 +24,12 @@ import (
 
 func newControllerContext(
 	openshiftControllerOptions origincontrollers.OpenshiftControllerOptions,
+	enabledControllers []string,
 	privilegedLoopbackConfig *rest.Config,
 	kubeExternal kclientsetexternal.Interface,
 	informers *informers,
 	stopCh <-chan struct{},
+	informersStarted chan struct{},
 ) origincontrollers.ControllerContext {
 
 	// divide up the QPS since it re-used separately for every client
@@ -41,6 +43,7 @@ func newControllerContext(
 
 	openshiftControllerContext := origincontrollers.ControllerContext{
 		OpenshiftControllerOptions: openshiftControllerOptions,
+		EnabledControllers:         enabledControllers,
 
 		ClientBuilder: origincontrollers.OpenshiftControllerClientBuilder{
 			ControllerClientBuilder: controller.SAControllerClientBuilder{
@@ -50,16 +53,18 @@ func newControllerContext(
 				Namespace:            bootstrappolicy.DefaultOpenShiftInfraNamespace,
 			},
 		},
-		InternalKubeInformers:  informers.internalKubeInformers,
-		ExternalKubeInformers:  informers.externalKubeInformers,
-		AppInformers:           informers.appInformers,
-		AuthorizationInformers: informers.authorizationInformers,
-		BuildInformers:         informers.buildInformers,
-		ImageInformers:         informers.imageInformers,
-		QuotaInformers:         informers.quotaInformers,
-		SecurityInformers:      informers.securityInformers,
-		TemplateInformers:      informers.templateInformers,
-		Stop:                   stopCh,
+		InternalKubeInformers:   informers.internalKubeInformers,
+		ExternalKubeInformers:   informers.GetExternalKubeInformers(),
+		AppInformers:            informers.appInformers,
+		AuthorizationInformers:  informers.authorizationInformers,
+		BuildInformers:          informers.buildInformers,
+		ImageInformers:          informers.imageInformers,
+		QuotaInformers:          informers.quotaInformers,
+		SecurityInformers:       informers.securityInformers,
+		TemplateInformers:       informers.templateInformers,
+		GenericResourceInformer: informers.ToGenericInformer(),
+		Stop:             stopCh,
+		InformersStarted: informersStarted,
 	}
 
 	return openshiftControllerContext

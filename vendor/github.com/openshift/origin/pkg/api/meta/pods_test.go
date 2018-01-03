@@ -4,11 +4,12 @@ import (
 	"reflect"
 	"testing"
 
+	kapiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	kapi "k8s.io/kubernetes/pkg/api"
-	kapiv1 "k8s.io/kubernetes/pkg/api/v1"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
 	_ "github.com/openshift/origin/pkg/api/install"
 )
@@ -53,7 +54,7 @@ func hasPodSpec(visited map[reflect.Type]bool, t reflect.Type) bool {
 }
 
 func internalGroupVersions() []schema.GroupVersion {
-	groupVersions := kapi.Registry.EnabledVersions()
+	groupVersions := legacyscheme.Registry.EnabledVersions()
 	groups := map[string]struct{}{}
 	for _, gv := range groupVersions {
 		groups[gv.Group] = struct{}{}
@@ -77,7 +78,7 @@ func isList(t reflect.Type) bool {
 func kindsWithPodSpecs() []schema.GroupKind {
 	result := []schema.GroupKind{}
 	for _, gv := range internalGroupVersions() {
-		knownTypes := kapi.Scheme.KnownTypes(gv)
+		knownTypes := legacyscheme.Scheme.KnownTypes(gv)
 		for kind, knownType := range knownTypes {
 			if !isList(knownType) && hasPodSpec(map[reflect.Type]bool{}, knownType) {
 				result = append(result, schema.GroupKind{Group: gv.Group, Kind: kind})

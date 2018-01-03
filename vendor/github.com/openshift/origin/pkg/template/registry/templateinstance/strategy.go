@@ -10,9 +10,9 @@ import (
 	"k8s.io/apiserver/pkg/authentication/user"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/storage/names"
-	kapi "k8s.io/kubernetes/pkg/api"
-	kapihelper "k8s.io/kubernetes/pkg/api/helper"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/apis/authorization"
+	kapihelper "k8s.io/kubernetes/pkg/apis/core/helper"
 	authorizationinternalversion "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/authorization/internalversion"
 	rbacregistry "k8s.io/kubernetes/pkg/registry/rbac"
 
@@ -30,7 +30,7 @@ type templateInstanceStrategy struct {
 }
 
 func NewStrategy(authorizationClient authorizationinternalversion.AuthorizationInterface) *templateInstanceStrategy {
-	return &templateInstanceStrategy{kapi.Scheme, names.SimpleNameGenerator, authorizationClient}
+	return &templateInstanceStrategy{legacyscheme.Scheme, names.SimpleNameGenerator, authorizationClient}
 }
 
 // NamespaceScoped is true for templateinstances.
@@ -104,22 +104,22 @@ func (s *templateInstanceStrategy) ValidateUpdate(ctx apirequest.Context, obj, o
 	// place where this happens is in the garbage collector, which uses
 	// Unstructureds via the dynamic client.
 
-	objcopy, err := kapi.Scheme.DeepCopy(obj)
-	if err != nil {
-		return field.ErrorList{field.InternalError(field.NewPath(""), err)}
+	if obj == nil {
+		return field.ErrorList{field.InternalError(field.NewPath(""), errors.New("input object is nil"))}
 	}
-	templateInstance := objcopy.(*templateapi.TemplateInstance)
+	templateInstanceCopy := obj.DeepCopyObject()
+	templateInstance := templateInstanceCopy.(*templateapi.TemplateInstance)
 
 	errs := runtime.DecodeList(templateInstance.Spec.Template.Objects, unstructured.UnstructuredJSONScheme)
 	if len(errs) != 0 {
 		return field.ErrorList{field.InternalError(field.NewPath(""), kutilerrors.NewAggregate(errs))}
 	}
 
-	oldcopy, err := kapi.Scheme.DeepCopy(old)
-	if err != nil {
-		return field.ErrorList{field.InternalError(field.NewPath(""), err)}
+	if old == nil {
+		return field.ErrorList{field.InternalError(field.NewPath(""), errors.New("input object is nil"))}
 	}
-	oldTemplateInstance := oldcopy.(*templateapi.TemplateInstance)
+	oldTemplateInstanceCopy := old.DeepCopyObject()
+	oldTemplateInstance := oldTemplateInstanceCopy.(*templateapi.TemplateInstance)
 
 	errs = runtime.DecodeList(oldTemplateInstance.Spec.Template.Objects, unstructured.UnstructuredJSONScheme)
 	if len(errs) != 0 {
@@ -165,7 +165,7 @@ type statusStrategy struct {
 	names.NameGenerator
 }
 
-var StatusStrategy = statusStrategy{kapi.Scheme, names.SimpleNameGenerator}
+var StatusStrategy = statusStrategy{legacyscheme.Scheme, names.SimpleNameGenerator}
 
 func (statusStrategy) NamespaceScoped() bool {
 	return true

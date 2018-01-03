@@ -9,10 +9,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kapisext "k8s.io/kubernetes/pkg/apis/extensions"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
 )
@@ -300,21 +300,21 @@ func Deployment(namespace, name string, containerImages ...string) kapisext.Depl
 }
 
 // DCList turns the given deployment configs into DeploymentConfigList.
-func DCList(dcs ...deployapi.DeploymentConfig) deployapi.DeploymentConfigList {
-	return deployapi.DeploymentConfigList{
+func DCList(dcs ...appsapi.DeploymentConfig) appsapi.DeploymentConfigList {
+	return appsapi.DeploymentConfigList{
 		Items: dcs,
 	}
 }
 
 // DC creates and returns a DeploymentConfig object.
-func DC(namespace, name string, containerImages ...string) deployapi.DeploymentConfig {
-	return deployapi.DeploymentConfig{
+func DC(namespace, name string, containerImages ...string) appsapi.DeploymentConfig {
+	return appsapi.DeploymentConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
 			Name:      name,
 			SelfLink:  "/dc/" + name,
 		},
-		Spec: deployapi.DeploymentConfigSpec{
+		Spec: appsapi.DeploymentConfigSpec{
 			Template: &kapi.PodTemplateSpec{
 				Spec: PodSpec(containerImages...),
 			},

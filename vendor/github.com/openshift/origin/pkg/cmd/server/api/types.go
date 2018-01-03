@@ -44,24 +44,25 @@ var (
 	DeadOpenShiftStorageVersionLevels = []string{"v1beta1", "v1beta3"}
 
 	APIGroupKube                  = ""
-	APIGroupExtensions            = "extensions"
 	APIGroupApps                  = "apps"
 	APIGroupAdmissionRegistration = "admissionregistration.k8s.io"
 	APIGroupAPIExtensions         = "apiextensions.k8s.io"
 	APIGroupAPIRegistration       = "apiregistration.k8s.io"
 	APIGroupAuthentication        = "authentication.k8s.io"
 	APIGroupAuthorization         = "authorization.k8s.io"
+	APIGroupExtensions            = "extensions"
+	APIGroupEvents                = "events.k8s.io"
 	APIGroupImagePolicy           = "imagepolicy.k8s.io"
 	APIGroupAutoscaling           = "autoscaling"
 	APIGroupBatch                 = "batch"
 	APIGroupCertificates          = "certificates.k8s.io"
-	APIGroupFederation            = "federation"
 	APIGroupNetworking            = "networking.k8s.io"
 	APIGroupPolicy                = "policy"
 	APIGroupStorage               = "storage.k8s.io"
 	APIGroupComponentConfig       = "componentconfig"
 	APIGroupAuthorizationRbac     = "rbac.authorization.k8s.io"
 	APIGroupSettings              = "settings.k8s.io"
+	APIGroupScheduling            = "scheduling.k8s.io"
 
 	OriginAPIGroupCore                = ""
 	OriginAPIGroupAuthorization       = "authorization.openshift.io"
@@ -82,20 +83,22 @@ var (
 	KubeAPIGroupsToAllowedVersions = map[string][]string{
 		APIGroupKube:                  {"v1"},
 		APIGroupExtensions:            {"v1beta1"},
-		APIGroupApps:                  {"v1beta1"},
-		APIGroupAdmissionRegistration: {}, // alpha disabled by default
+		APIGroupEvents:                {"v1beta1"},
+		APIGroupApps:                  {"v1", "v1beta1", "v1beta2"},
+		APIGroupAdmissionRegistration: {"v1beta1"},
 		APIGroupAPIExtensions:         {"v1beta1"},
 		APIGroupAPIRegistration:       {"v1beta1"},
 		APIGroupAuthentication:        {"v1", "v1beta1"},
 		APIGroupAuthorization:         {"v1", "v1beta1"},
-		APIGroupAuthorizationRbac:     {"v1beta1"},
-		APIGroupAutoscaling:           {"v1"},
-		APIGroupBatch:                 {"v1", "v2alpha1"}, // v2alpha1 has to stay on to keep cronjobs on for backwards compatibility
+		APIGroupAuthorizationRbac:     {"v1", "v1beta1"},
+		APIGroupAutoscaling:           {"v1", "v2beta1"},
+		APIGroupBatch:                 {"v1", "v1beta1", "v2alpha1"}, // v2alpha1 has to stay on to keep cronjobs on for backwards compatibility
 		APIGroupCertificates:          {"v1beta1"},
 		APIGroupNetworking:            {"v1"},
 		APIGroupPolicy:                {"v1beta1"},
 		APIGroupStorage:               {"v1", "v1beta1"},
 		APIGroupSettings:              {}, // list the group, but don't enable any versions.  alpha disabled by default, but enablable via arg
+		APIGroupScheduling:            {}, // alpha disabled by default
 		// TODO: enable as part of a separate binary
 		//APIGroupFederation:  {"v1beta1"},
 	}
@@ -126,6 +129,8 @@ var (
 		APIGroupAdmissionRegistration: {"v1alpha1"},
 		APIGroupAuthorizationRbac:     {"v1alpha1"},
 		APIGroupSettings:              {"v1alpha1"},
+		APIGroupScheduling:            {"v1alpha1"},
+		APIGroupStorage:               {"v1alpha1"},
 	}
 	KnownKubeAPIGroups   = sets.StringKeySet(KubeAPIGroupsToAllowedVersions)
 	KnownOriginAPIGroups = sets.StringKeySet(OriginAPIGroupsToAllowedVersions)
@@ -1514,6 +1519,10 @@ type AdmissionConfig struct {
 
 // ControllerConfig holds configuration values for controllers
 type ControllerConfig struct {
+	// Controllers is a list of controllers to enable.  '*' enables all on-by-default controllers, 'foo' enables the controller "+
+	// named 'foo', '-foo' disables the controller named 'foo'.
+	// Defaults to "*".
+	Controllers []string
 	// Election defines the configuration for electing a controller instance to make changes to
 	// the cluster. If unspecified, the ControllerTTL value is checked to determine whether the
 	// legacy direct etcd election code will be used.

@@ -25,7 +25,7 @@ import (
 	clientgoclientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	aggregatorinstall "k8s.io/kube-aggregator/pkg/apis/apiregistration/install"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/capabilities"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	kcmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
@@ -379,7 +379,7 @@ func (m *Master) Start() error {
 	// install aggregator types into the scheme so that "normal" RESTOptionsGetters can work for us.
 	// done in Start() prior to doing any other initialization so we don't mutate the scheme after it is being used by clients in other goroutines.
 	// TODO: make scheme threadsafe and do this as part of aggregator config building
-	aggregatorinstall.Install(kapi.GroupFactoryRegistry, kapi.Registry, kapi.Scheme)
+	aggregatorinstall.Install(legacyscheme.GroupFactoryRegistry, legacyscheme.Registry, legacyscheme.Scheme)
 
 	// we have a strange, optional linkage from controllers to the API server regarding the plug.  In the end, this should be structured
 	// as a separate API server which can be chained as a delegate
@@ -387,11 +387,11 @@ func (m *Master) Start() error {
 
 	controllersEnabled := m.controllers && m.config.Controllers != configapi.ControllersDisabled
 	if controllersEnabled {
-		// informers are shared amongst all the various controllers we build
-		informers, err := NewInformers(*m.config)
+		openshiftControllerInformers, err := NewInformers(*m.config)
 		if err != nil {
 			return err
 		}
+
 		_, config, err := configapi.GetExternalKubeClient(m.config.MasterClients.OpenShiftLoopbackKubeConfig, m.config.MasterClients.OpenShiftLoopbackClientConnectionOverrides)
 		if err != nil {
 			return err
@@ -451,7 +451,7 @@ func (m *Master) Start() error {
 		allocationController := origin.SecurityAllocationController{
 			SecurityAllocator:          m.config.ProjectConfig.SecurityAllocator,
 			OpenshiftRESTOptionsGetter: restOptsGetter,
-			ExternalKubeInformers:      informers.GetExternalKubeInformers(),
+			ExternalKubeInformers:      openshiftControllerInformers.GetExternalKubeInformers(),
 			KubeExternalClient:         kubeExternal,
 		}
 
@@ -466,35 +466,42 @@ func (m *Master) Start() error {
 			glog.Fatalf("Controller graceful shutdown requested")
 		}()
 
+		go runEmbeddedScheduler(m.config.MasterClients.OpenShiftLoopbackKubeConfig, m.config.KubernetesMasterConfig.SchedulerConfigFile, m.config.KubernetesMasterConfig.SchedulerArguments)
+
+		kubeControllerInformers, err := NewInformers(*m.config)
+		if err != nil {
+			return err
+		}
+		go runEmbeddedKubeControllerManager(
+			m.config.MasterClients.OpenShiftLoopbackKubeConfig,
+			m.config.ServiceAccountConfig.PrivateKeyFile,
+			m.config.ServiceAccountConfig.MasterCA,
+			m.config.KubernetesMasterConfig.PodEvictionTimeout,
+			m.config.VolumeConfig.DynamicProvisioningEnabled,
+			m.config.KubernetesMasterConfig.ControllerArguments,
+			recyclerImage,
+			kubeControllerInformers)
+
 		go func() {
 			controllerPlug.WaitForStart()
 			if err := waitForHealthyAPIServer(kubeExternal.Discovery().RESTClient()); err != nil {
 				glog.Fatal(err)
 			}
 
-			// continuously run the scheduler while we have the primary lease
-			go runEmbeddedScheduler(m.config.MasterClients.OpenShiftLoopbackKubeConfig, m.config.KubernetesMasterConfig.SchedulerConfigFile, m.config.KubernetesMasterConfig.SchedulerArguments)
-
-			go runEmbeddedKubeControllerManager(
-				m.config.MasterClients.OpenShiftLoopbackKubeConfig,
-				m.config.ServiceAccountConfig.PrivateKeyFile,
-				m.config.ServiceAccountConfig.MasterCA,
-				m.config.KubernetesMasterConfig.PodEvictionTimeout,
-				m.config.VolumeConfig.DynamicProvisioningEnabled,
-				m.config.KubernetesMasterConfig.ControllerArguments,
-				recyclerImage,
-				informers)
-
 			openshiftControllerOptions, err := getOpenshiftControllerOptions(m.config.KubernetesMasterConfig.ControllerArguments)
 			if err != nil {
 				glog.Fatal(err)
 			}
-			controllerContext := newControllerContext(openshiftControllerOptions, privilegedLoopbackConfig, kubeExternal, informers, utilwait.NeverStop)
+
+			stopCh := utilwait.NeverStop
+			informersStarted := make(chan struct{})
+			controllerContext := newControllerContext(openshiftControllerOptions, m.config.ControllerConfig.Controllers, privilegedLoopbackConfig, kubeExternal, openshiftControllerInformers, stopCh, informersStarted)
 			if err := startControllers(*m.config, allocationController, controllerContext); err != nil {
 				glog.Fatal(err)
 			}
 
-			informers.Start(utilwait.NeverStop)
+			openshiftControllerInformers.Start(stopCh)
+			close(informersStarted)
 		}()
 	}
 
@@ -507,7 +514,7 @@ func (m *Master) Start() error {
 		}
 		// the API server runs a reverse index on users to groups which requires an index on the group informer
 		// this activates the lister/watcher, so we want to do it only in this path
-		err = informers.userInformers.User().InternalVersion().Groups().Informer().AddIndexers(cache.Indexers{
+		err = informers.userInformers.User().V1().Groups().Informer().AddIndexers(cache.Indexers{
 			usercache.ByUserIndexName: usercache.ByUserIndexKeys,
 		})
 		if err != nil {
@@ -564,7 +571,7 @@ func StartAPI(oc *origin.MasterConfig, controllerPlug plug.Plug) error {
 
 	// if the webconsole is configured to be standalone, go ahead and create and run it
 	if oc.WebConsoleEnabled() && oc.WebConsoleStandalone() {
-		config, err := assetapiserver.NewAssetServerConfig(*oc.Options.AssetConfig)
+		config, err := assetapiserver.NewAssetServerConfig(*oc.Options.AssetConfig, nil)
 		if err != nil {
 			return err
 		}

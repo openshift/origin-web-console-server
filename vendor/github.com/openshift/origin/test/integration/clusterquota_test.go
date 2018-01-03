@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilwait "k8s.io/apimachinery/pkg/util/wait"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kcoreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
 
 	quotaapi "github.com/openshift/origin/pkg/quota/apis/quota"
@@ -35,7 +35,7 @@ func TestClusterQuota(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	clusterAdminQuotaClient := quotaclient.NewForConfigOrDie(clusterAdminClientConfig)
-	clusterAdminImageClient := imageclient.NewForConfigOrDie(clusterAdminClientConfig)
+	clusterAdminImageClient := imageclient.NewForConfigOrDie(clusterAdminClientConfig).Image()
 
 	cq := &quotaapi.ClusterResourceQuota{
 		ObjectMeta: metav1.ObjectMeta{Name: "overall"},
@@ -51,7 +51,7 @@ func TestClusterQuota(t *testing.T) {
 			},
 		},
 	}
-	if _, err := clusterAdminQuotaClient.ClusterResourceQuotas().Create(cq); err != nil {
+	if _, err := clusterAdminQuotaClient.Quota().ClusterResourceQuotas().Create(cq); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -84,7 +84,7 @@ func TestClusterQuota(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, err := clusterAdminKubeClient.Core().ConfigMaps("second").Create(configmap); !kapierrors.IsForbidden(err) {
-		list, err := clusterAdminQuotaClient.AppliedClusterResourceQuotas("second").List(metav1.ListOptions{})
+		list, err := clusterAdminQuotaClient.Quota().AppliedClusterResourceQuotas("second").List(metav1.ListOptions{})
 		if err == nil {
 			t.Errorf("quota is %#v", list)
 		}
@@ -103,7 +103,7 @@ func TestClusterQuota(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, err := clusterAdminImageClient.ImageStreams("second").Create(imagestream); !kapierrors.IsForbidden(err) {
-		list, err := clusterAdminQuotaClient.AppliedClusterResourceQuotas("second").List(metav1.ListOptions{})
+		list, err := clusterAdminQuotaClient.Quota().AppliedClusterResourceQuotas("second").List(metav1.ListOptions{})
 		if err == nil {
 			t.Errorf("quota is %#v", list)
 		}

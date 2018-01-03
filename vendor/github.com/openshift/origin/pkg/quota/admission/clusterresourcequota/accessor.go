@@ -9,7 +9,7 @@ import (
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilwait "k8s.io/apimachinery/pkg/util/wait"
 	etcd "k8s.io/apiserver/pkg/storage/etcd"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kcorelisters "k8s.io/kubernetes/pkg/client/listers/core/internalversion"
 	utilquota "k8s.io/kubernetes/pkg/quota"
 
@@ -63,13 +63,9 @@ func (e *clusterQuotaAccessor) UpdateQuotaStatus(newQuota *kapi.ResourceQuota) e
 	}
 	clusterQuota = e.checkCache(clusterQuota)
 
-	// make a copy
-	obj, err := kapi.Scheme.Copy(clusterQuota)
-	if err != nil {
-		return err
-	}
 	// re-assign objectmeta
-	clusterQuota = obj.(*quotaapi.ClusterResourceQuota)
+	// make a copy
+	clusterQuota = clusterQuota.DeepCopy()
 	clusterQuota.ObjectMeta = newQuota.ObjectMeta
 	clusterQuota.Namespace = ""
 
@@ -81,11 +77,8 @@ func (e *clusterQuotaAccessor) UpdateQuotaStatus(newQuota *kapi.ResourceQuota) e
 
 	// update per namespace totals
 	oldNamespaceTotals, _ := clusterQuota.Status.Namespaces.Get(newQuota.Namespace)
-	namespaceTotalCopy, err := kapi.Scheme.DeepCopy(oldNamespaceTotals)
-	if err != nil {
-		return err
-	}
-	newNamespaceTotals := namespaceTotalCopy.(kapi.ResourceQuotaStatus)
+	namespaceTotalCopy := oldNamespaceTotals.DeepCopy()
+	newNamespaceTotals := *namespaceTotalCopy
 	newNamespaceTotals.Used = utilquota.Add(oldNamespaceTotals.Used, usageDiff)
 	clusterQuota.Status.Namespaces.Insert(newQuota.Namespace, newNamespaceTotals)
 
@@ -155,6 +148,11 @@ func (e *clusterQuotaAccessor) waitForReadyClusterQuotaNames(namespaceName strin
 		var namespaceSelectionFields clusterquotamapping.SelectionFields
 		clusterQuotaNames, namespaceSelectionFields = e.clusterQuotaMapper.GetClusterQuotasFor(namespaceName)
 		namespace, err := e.namespaceLister.Get(namespaceName)
+		// if we can't find the namespace yet, just wait for the cache to update.  Requests to non-existent namespaces
+		// may hang, but those people are doing something wrong and namespacelifecycle should reject them.
+		if kapierrors.IsNotFound(err) {
+			return false, nil
+		}
 		if err != nil {
 			return false, err
 		}

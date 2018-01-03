@@ -8,16 +8,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	clientgotesting "k8s.io/client-go/testing"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 )
 
 func TestWaitForRunningDeploymentSuccess(t *testing.T) {
 	fakeController := &kapi.ReplicationController{}
 	fakeController.Name = "test-1"
 	fakeController.Namespace = "test"
+	fakeController.Annotations = map[string]string{appsapi.DeploymentStatusAnnotation: string(appsapi.DeploymentStatusRunning)}
 
 	kubeclient := fake.NewSimpleClientset([]runtime.Object{fakeController}...)
 	fakeWatch := watch.NewFake()
@@ -38,7 +39,6 @@ func TestWaitForRunningDeploymentSuccess(t *testing.T) {
 		}
 	}()
 
-	fakeController.Annotations = map[string]string{deployapi.DeploymentStatusAnnotation: string(deployapi.DeploymentStatusRunning)}
 	fakeWatch.Modify(fakeController)
 	<-stopChan
 }
@@ -101,7 +101,7 @@ func TestWaitForRunningDeploymentRestartWatch(t *testing.T) {
 	// running state.
 	select {
 	case <-watchCalledChan:
-		fakeController.Annotations = map[string]string{deployapi.DeploymentStatusAnnotation: string(deployapi.DeploymentStatusRunning)}
+		fakeController.Annotations = map[string]string{appsapi.DeploymentStatusAnnotation: string(appsapi.DeploymentStatusRunning)}
 		fakeWatch.Modify(fakeController)
 		<-stopChan
 	case <-time.After(time.Second * 5):

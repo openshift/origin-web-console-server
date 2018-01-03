@@ -28,6 +28,7 @@ import (
 //
 // DOCKER_STORAGE_OPTIONS= -s layer0 --storage-opt layer0.volume_driver=aws
 
+// Layer0Vol represents the volume
 type Layer0Vol struct {
 	// id self referential ID
 	id string
@@ -41,6 +42,7 @@ type Layer0Vol struct {
 	ref int32
 }
 
+// Layer0 implements the graphdriver interface
 type Layer0 struct {
 	sync.Mutex
 	// Driver is an implementation of GraphDriver. Only select methods are overridden
@@ -55,8 +57,11 @@ type Layer0 struct {
 
 // Layer0Graphdriver options. This should be passed in as a st
 const (
-	Name               = "layer0"
-	Type               = api.DriverType_DRIVER_TYPE_GRAPH
+	// Name of the driver
+	Name = "layer0"
+	// Type of the driver
+	Type = api.DriverType_DRIVER_TYPE_GRAPH
+	// Layer0VolumeDriver constant
 	Layer0VolumeDriver = "layer0.volume_driver"
 )
 
@@ -64,6 +69,7 @@ func init() {
 	graph.Register(Name, Init)
 }
 
+// Init initializes the driver
 func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (graphdriver.Driver, error) {
 	var volumeDriver string
 	for _, option := range options {
@@ -182,7 +188,7 @@ func (l *Layer0) create(id, parent string) (string, *Layer0Vol, error) {
 
 	// If this is a block driver, first attach the volume.
 	if l.volDriver.Type() == api.DriverType_DRIVER_TYPE_BLOCK {
-		_, err := l.volDriver.Attach(vols[index].Id)
+		_, err := l.volDriver.Attach(vols[index].Id, nil)
 		if err != nil {
 			dlog.Errorf("Failed to attach volume %v", vols[index].Id)
 			delete(l.volumes, id)
@@ -203,6 +209,7 @@ func (l *Layer0) create(id, parent string) (string, *Layer0Vol, error) {
 	return l.realID(id), vol, nil
 }
 
+// Create creates a new and empty filesystem layer
 func (l *Layer0) Create(id string, parent string, mountLabel string, storageOpts map[string]string) error {
 	id, vol, err := l.create(id, parent)
 	if err != nil {
@@ -224,6 +231,7 @@ func (l *Layer0) Create(id string, parent string, mountLabel string, storageOpts
 	return os.Rename(savedUpper, upperDir)
 }
 
+// Remove removes a layer based on its id
 func (l *Layer0) Remove(id string) error {
 	if !l.isLayer0(id) {
 		return l.Driver.Remove(l.realID(id))
@@ -245,7 +253,7 @@ func (l *Layer0) Remove(id string) error {
 			l.Driver.Remove(l.realID(id))
 			err = l.volDriver.Unmount(v.volumeID, v.path)
 			if l.volDriver.Type() == api.DriverType_DRIVER_TYPE_BLOCK {
-				_ = l.volDriver.Detach(v.volumeID)
+				_ = l.volDriver.Detach(v.volumeID, false)
 			}
 			err = os.RemoveAll(v.path)
 			delete(l.volumes, v.id)
@@ -256,26 +264,31 @@ func (l *Layer0) Remove(id string) error {
 	return err
 }
 
+// Get returns the mountpoint for the layered filesystem
 func (l *Layer0) Get(id string, mountLabel string) (string, error) {
 	id = l.realID(id)
 	return l.Driver.Get(id, mountLabel)
 }
 
+// Put releases the system resources for the specified id
 func (l *Layer0) Put(id string) error {
 	id = l.realID(id)
 	return l.Driver.Put(id)
 }
 
+// ApplyDiff extracts the changeset between the specified layer and its parent
 func (l *Layer0) ApplyDiff(id string, parent string, diff archive.Reader) (size int64, err error) {
 	id = l.realID(id)
 	return l.Driver.ApplyDiff(id, parent, diff)
 }
 
+// Exists checks if leyr exists
 func (l *Layer0) Exists(id string) bool {
 	id = l.realID(id)
 	return l.Driver.Exists(id)
 }
 
+// GetMetadata returns key-value pairs
 func (l *Layer0) GetMetadata(id string) (map[string]string, error) {
 	id = l.realID(id)
 	return l.Driver.GetMetadata(id)

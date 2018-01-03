@@ -14,8 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 	utilcert "k8s.io/client-go/util/cert"
-	kubeletapp "k8s.io/kubernetes/cmd/kubelet/app"
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
+	"k8s.io/kubernetes/pkg/kubelet/certificate/bootstrap"
 	nodeutil "k8s.io/kubernetes/pkg/util/node"
 
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
@@ -40,7 +40,7 @@ func (o NodeOptions) loadBootstrap(nodeConfigDir string) error {
 	bootstrapKubeconfig := o.NodeArgs.KubeConnectionArgs.ClientConfigLoadingRules.ExplicitPath
 	nodeKubeconfig := filepath.Join(nodeConfigDir, "node.kubeconfig")
 	certDir := filepath.Join(nodeConfigDir, "certificates")
-	if err := kubeletapp.BootstrapClientCert(
+	if err := bootstrap.LoadClientCert(
 		nodeKubeconfig,
 		bootstrapKubeconfig,
 		certDir,
@@ -155,6 +155,7 @@ func overrideNodeConfigForBootstrap(nodeConfig *configapi.NodeConfig, bootstrapK
 	nodeConfig.ServingInfo.ServerCert.CertFile = ""
 	nodeConfig.ServingInfo.ServerCert.KeyFile = ""
 	nodeConfig.KubeletArguments["bootstrap-kubeconfig"] = []string{bootstrapKubeconfig}
+	nodeConfig.KubeletArguments["rotate-certificates"] = []string{"true"}
 
 	// Default a valid certificate directory to store bootstrap certs
 	if _, ok := nodeConfig.KubeletArguments["cert-dir"]; !ok {

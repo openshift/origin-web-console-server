@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	apiendpointhandlers "k8s.io/apiserver/pkg/endpoints/handlers"
 	restclient "k8s.io/client-go/rest"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
 	templatesapi "github.com/openshift/origin/pkg/template/apis/template"
 	templateclient "github.com/openshift/origin/pkg/template/generated/internalclientset"
@@ -33,7 +33,7 @@ func TestPatchConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	clusterAdminTemplateClient := templateclient.NewForConfigOrDie(clusterAdminClientConfig)
+	clusterAdminTemplateClient := templateclient.NewForConfigOrDie(clusterAdminClientConfig).Template()
 
 	clusterAdminKubeClientset, err := testutil.GetClusterAdminKubeClient(clusterAdminKubeConfig)
 	if err != nil {
@@ -62,7 +62,7 @@ func TestPatchConflicts(t *testing.T) {
 			resource: "secrets",
 		},
 		{
-			client:   clusterAdminTemplateClient.Template().RESTClient(),
+			client:   clusterAdminTemplateClient.RESTClient(),
 			resource: "templates",
 		},
 	}

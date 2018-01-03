@@ -324,9 +324,22 @@ type AuthenticationInfo struct {
 	// authority.
 	AuthoritySelector string `json:"authoritySelector,omitempty"`
 
-	// PrincipalEmail: The email address of the authenticated user making
-	// the request.
+	// PrincipalEmail: The email address of the authenticated user (or
+	// service account on behalf
+	// of third party principal) making the request. For privacy reasons,
+	// the
+	// principal email address is redacted for all read-only operations that
+	// fail
+	// with a "permission denied" error.
 	PrincipalEmail string `json:"principalEmail,omitempty"`
+
+	// ThirdPartyPrincipal: The third party identification (if any) of the
+	// authenticated user making
+	// the request.
+	// When the JSON object represented here has a proto equivalent, the
+	// proto
+	// name will be indicated in the `@type` property.
+	ThirdPartyPrincipal googleapi.RawMessage `json:"thirdPartyPrincipal,omitempty"`
 
 	// ForceSendFields is a list of field names (e.g. "AuthoritySelector")
 	// to unconditionally include in API requests. By default, fields with
@@ -365,7 +378,7 @@ type AuthorizationInfo struct {
 	// Resource: The resource being accessed, as a REST-style string. For
 	// example:
 	//
-	//     bigquery.googlapis.com/projects/PROJECTID/datasets/DATASETID
+	//     bigquery.googleapis.com/projects/PROJECTID/datasets/DATASETID
 	Resource string `json:"resource,omitempty"`
 
 	// ForceSendFields is a list of field names (e.g. "Granted") to
@@ -492,6 +505,9 @@ func (s *CheckError) MarshalJSON() ([]byte, error) {
 }
 
 type CheckInfo struct {
+	// ConsumerInfo: Consumer info of this check.
+	ConsumerInfo *ConsumerInfo `json:"consumerInfo,omitempty"`
+
 	// UnusedArguments: A list of fields and label keys that are ignored by
 	// the server.
 	// The client doesn't need to send them for following requests to
@@ -499,7 +515,7 @@ type CheckInfo struct {
 	// performance and allow better aggregation.
 	UnusedArguments []string `json:"unusedArguments,omitempty"`
 
-	// ForceSendFields is a list of field names (e.g. "UnusedArguments") to
+	// ForceSendFields is a list of field names (e.g. "ConsumerInfo") to
 	// unconditionally include in API requests. By default, fields with
 	// empty values are omitted from API requests. However, any non-pointer,
 	// non-interface field appearing in ForceSendFields will be sent to the
@@ -507,13 +523,12 @@ type CheckInfo struct {
 	// used to include empty fields in Patch requests.
 	ForceSendFields []string `json:"-"`
 
-	// NullFields is a list of field names (e.g. "UnusedArguments") to
-	// include in API requests with the JSON null value. By default, fields
-	// with empty values are omitted from API requests. However, any field
-	// with an empty value appearing in NullFields will be sent to the
-	// server as null. It is an error if a field in this list has a
-	// non-empty value. This may be used to include null fields in Patch
-	// requests.
+	// NullFields is a list of field names (e.g. "ConsumerInfo") to include
+	// in API requests with the JSON null value. By default, fields with
+	// empty values are omitted from API requests. However, any field with
+	// an empty value appearing in NullFields will be sent to the server as
+	// null. It is an error if a field in this list has a non-empty value.
+	// This may be used to include null fields in Patch requests.
 	NullFields []string `json:"-"`
 }
 
@@ -619,6 +634,37 @@ type CheckResponse struct {
 
 func (s *CheckResponse) MarshalJSON() ([]byte, error) {
 	type noMethod CheckResponse
+	raw := noMethod(*s)
+	return gensupport.MarshalJSON(raw, s.ForceSendFields, s.NullFields)
+}
+
+// ConsumerInfo: `ConsumerInfo` provides information about the consumer
+// project.
+type ConsumerInfo struct {
+	// ProjectNumber: The Google cloud project number, e.g. 1234567890. A
+	// value of 0 indicates
+	// no project number is found.
+	ProjectNumber int64 `json:"projectNumber,omitempty,string"`
+
+	// ForceSendFields is a list of field names (e.g. "ProjectNumber") to
+	// unconditionally include in API requests. By default, fields with
+	// empty values are omitted from API requests. However, any non-pointer,
+	// non-interface field appearing in ForceSendFields will be sent to the
+	// server regardless of whether the field is empty or not. This may be
+	// used to include empty fields in Patch requests.
+	ForceSendFields []string `json:"-"`
+
+	// NullFields is a list of field names (e.g. "ProjectNumber") to include
+	// in API requests with the JSON null value. By default, fields with
+	// empty values are omitted from API requests. However, any field with
+	// an empty value appearing in NullFields will be sent to the server as
+	// null. It is an error if a field in this list has a non-empty value.
+	// This may be used to include null fields in Patch requests.
+	NullFields []string `json:"-"`
+}
+
+func (s *ConsumerInfo) MarshalJSON() ([]byte, error) {
+	type noMethod ConsumerInfo
 	raw := noMethod(*s)
 	return gensupport.MarshalJSON(raw, s.ForceSendFields, s.NullFields)
 }
@@ -1021,8 +1067,9 @@ type LogEntry struct {
 
 	// ProtoPayload: The log entry payload, represented as a protocol buffer
 	// that is
-	// expressed as a JSON object. You can only pass `protoPayload`
-	// values that belong to a set of approved types.
+	// expressed as a JSON object. The only accepted type currently
+	// is
+	// AuditLog.
 	ProtoPayload googleapi.RawMessage `json:"protoPayload,omitempty"`
 
 	// Severity: The severity of the log entry. The default value
@@ -1351,6 +1398,10 @@ type Operation struct {
 	//     - “organizations/<organization-id>”
 	ResourceContainer string `json:"resourceContainer,omitempty"`
 
+	// ResourceContainers: DO NOT USE.
+	// This field is not ready for use yet.
+	ResourceContainers []string `json:"resourceContainers,omitempty"`
+
 	// StartTime: Required. Start time of the operation.
 	StartTime string `json:"startTime,omitempty"`
 
@@ -1389,23 +1440,22 @@ type QuotaError struct {
 	//   "UNSPECIFIED" - This is never used.
 	//   "RESOURCE_EXHAUSTED" - Quota allocation failed.
 	// Same as google.rpc.Code.RESOURCE_EXHAUSTED.
-	//   "PROJECT_SUSPENDED" - Consumer project has been suspended.
-	//   "SERVICE_NOT_ENABLED" - Consumer has not enabled the service.
+	//   "OUT_OF_RANGE" - Quota release failed.  This error is ONLY returned
+	// on a NORMAL release.
+	// More formally:  if a user requests a release of 10 tokens, but only
+	// 5 tokens were previously allocated, in a BEST_EFFORT release, this
+	// will
+	// be considered a success, 5 tokens will be released, and the result
+	// will
+	// be "Ok".  If this is done in NORMAL mode, no tokens will be
+	// released,
+	// and an OUT_OF_RANGE error will be returned.
+	// Same as google.rpc.Code.OUT_OF_RANGE.
 	//   "BILLING_NOT_ACTIVE" - Consumer cannot access the service because
-	// billing is disabled.
+	// the service requires active
+	// billing.
 	//   "PROJECT_DELETED" - Consumer's project has been marked as deleted
 	// (soft deletion).
-	//   "PROJECT_INVALID" - Consumer's project number or ID does not
-	// represent a valid project.
-	//   "IP_ADDRESS_BLOCKED" - IP address of the consumer is invalid for
-	// the specific consumer
-	// project.
-	//   "REFERER_BLOCKED" - Referer address of the consumer request is
-	// invalid for the specific
-	// consumer project.
-	//   "CLIENT_APP_BLOCKED" - Client application of the consumer request
-	// is invalid for the
-	// specific consumer project.
 	//   "API_KEY_INVALID" - Specified API key is invalid.
 	//   "API_KEY_EXPIRED" - Specified API Key has expired.
 	//   "SPATULA_HEADER_INVALID" - Consumer's spatula header is invalid.
@@ -1471,7 +1521,15 @@ type QuotaInfo struct {
 	// quota check was not successful, then this will not be populated due
 	// to no
 	// quota consumption.
-	// Deprecated: Use quota_metrics to get per quota group usage.
+	//
+	// We are not merging this field with 'quota_metrics' field because of
+	// the
+	// complexity of scaling in Chemist client code base. For simplicity, we
+	// will
+	// keep this field for Castor (that scales quota usage) and
+	// 'quota_metrics'
+	// for SuperQuota (that doesn't scale quota usage).
+	//
 	QuotaConsumed map[string]int64 `json:"quotaConsumed,omitempty"`
 
 	// QuotaMetrics: Quota metrics to indicate the usage. Depending on the
@@ -1546,13 +1604,11 @@ type QuotaOperation struct {
 	//     google.example.library.v1.LibraryService.CreateShelf
 	MethodName string `json:"methodName,omitempty"`
 
-	// OperationId: Identity of the operation. This must be unique within
-	// the scope of the
-	// service that generated the operation. If the service calls
-	// AllocateQuota
-	// and ReleaseQuota on the same operation, the two calls should carry
-	// the
-	// same ID.
+	// OperationId: Identity of the operation. This is expected to be unique
+	// within the scope
+	// of the service that generated the operation, and guarantees
+	// idempotency in
+	// case of retries.
 	//
 	// UUID version 4 is recommended, though not required. In scenarios
 	// where an
@@ -1818,13 +1874,13 @@ func (s *ReleaseQuotaResponse) MarshalJSON() ([]byte, error) {
 	return gensupport.MarshalJSON(raw, s.ForceSendFields, s.NullFields)
 }
 
-// ReportError: Represents the processing error of one `Operation` in
-// the request.
+// ReportError: Represents the processing error of one Operation in the
+// request.
 type ReportError struct {
 	// OperationId: The Operation.operation_id value from the request.
 	OperationId string `json:"operationId,omitempty"`
 
-	// Status: Details of the error when processing the `Operation`.
+	// Status: Details of the error when processing the Operation.
 	Status *Status `json:"status,omitempty"`
 
 	// ForceSendFields is a list of field names (e.g. "OperationId") to
@@ -2002,6 +2058,18 @@ func (s *ReportResponse) MarshalJSON() ([]byte, error) {
 // RequestMetadata: Metadata about the request.
 type RequestMetadata struct {
 	// CallerIp: The IP address of the caller.
+	// For caller from internet, this will be public IPv4 or IPv6
+	// address.
+	// For caller from GCE VM with external IP address, this will be the
+	// VM's
+	// external IP address. For caller from GCE VM without external IP
+	// address, if
+	// the VM is in the same GCP organization (or project) as the
+	// accessed
+	// resource, `caller_ip` will be the GCE VM's internal IPv4 address,
+	// otherwise
+	// it will be redacted to "gce-internal-ip".
+	// See https://cloud.google.com/compute/docs/vpc/ for more information.
 	CallerIp string `json:"callerIp,omitempty"`
 
 	// CallerSuppliedUserAgent: The user agent of the caller.
@@ -2016,6 +2084,7 @@ type RequestMetadata struct {
 	// +   `AppEngine-Google; (+http://code.google.com/appengine; appid:
 	// s~my-project`:
 	//     The request was made from the `my-project` App Engine app.
+	// NOLINT
 	CallerSuppliedUserAgent string `json:"callerSuppliedUserAgent,omitempty"`
 
 	// ForceSendFields is a list of field names (e.g. "CallerIp") to
@@ -2163,7 +2232,7 @@ func (s *StartReconciliationResponse) MarshalJSON() ([]byte, error) {
 // arbitrary
 // information about the error. There is a predefined set of error
 // detail types
-// in the package `google.rpc` which can be used for common error
+// in the package `google.rpc` that can be used for common error
 // conditions.
 //
 // # Language mapping
@@ -2196,7 +2265,7 @@ func (s *StartReconciliationResponse) MarshalJSON() ([]byte, error) {
 //
 // - Workflow errors. A typical workflow has multiple steps. Each step
 // may
-//     have a `Status` message for error reporting purpose.
+//     have a `Status` message for error reporting.
 //
 // - Batch operations. If a client uses batch request and batch
 // response, the
@@ -2219,9 +2288,9 @@ type Status struct {
 	// google.rpc.Code.
 	Code int64 `json:"code,omitempty"`
 
-	// Details: A list of messages that carry the error details.  There will
-	// be a
-	// common set of message types for APIs to use.
+	// Details: A list of messages that carry the error details.  There is a
+	// common set of
+	// message types for APIs to use.
 	Details []googleapi.RawMessage `json:"details,omitempty"`
 
 	// Message: A developer-facing error message, which should be in
@@ -2431,7 +2500,7 @@ type ServicesCheckCall struct {
 // cached
 // results for longer time.
 //
-// NOTE: the `CheckRequest` has the size limit of 64KB.
+// NOTE: the CheckRequest has the size limit of 64KB.
 //
 // This method requires the `servicemanagement.services.check`
 // permission
@@ -2530,7 +2599,7 @@ func (c *ServicesCheckCall) Do(opts ...googleapi.CallOption) (*CheckResponse, er
 	}
 	return ret, nil
 	// {
-	//   "description": "Checks an operation with Google Service Control to decide whether\nthe given operation should proceed. It should be called before the\noperation is executed.\n\nIf feasible, the client should cache the check results and reuse them for\n60 seconds. In case of server errors, the client can rely on the cached\nresults for longer time.\n\nNOTE: the `CheckRequest` has the size limit of 64KB.\n\nThis method requires the `servicemanagement.services.check` permission\non the specified service. For more information, see\n[Google Cloud IAM](https://cloud.google.com/iam).",
+	//   "description": "Checks an operation with Google Service Control to decide whether\nthe given operation should proceed. It should be called before the\noperation is executed.\n\nIf feasible, the client should cache the check results and reuse them for\n60 seconds. In case of server errors, the client can rely on the cached\nresults for longer time.\n\nNOTE: the CheckRequest has the size limit of 64KB.\n\nThis method requires the `servicemanagement.services.check` permission\non the specified service. For more information, see\n[Google Cloud IAM](https://cloud.google.com/iam).",
 	//   "flatPath": "v1/services/{serviceName}:check",
 	//   "httpMethod": "POST",
 	//   "id": "servicecontrol.services.check",
@@ -2539,7 +2608,7 @@ func (c *ServicesCheckCall) Do(opts ...googleapi.CallOption) (*CheckResponse, er
 	//   ],
 	//   "parameters": {
 	//     "serviceName": {
-	//       "description": "The service name as specified in its service configuration. For example,\n`\"pubsub.googleapis.com\"`.\n\nSee google.api.Service for the definition of a service name.",
+	//       "description": "The service name as specified in its service configuration. For example,\n`\"pubsub.googleapis.com\"`.\n\nSee\n[google.api.Service](https://cloud.google.com/service-management/reference/rpc/google.api#google.api.Service)\nfor the definition of a service name.",
 	//       "location": "path",
 	//       "required": true,
 	//       "type": "string"
@@ -2881,7 +2950,7 @@ type ServicesReportCall struct {
 // 0.01%
 // for business and compliance reasons.
 //
-// NOTE: the `ReportRequest` has the size limit of 1MB.
+// NOTE: the ReportRequest has the size limit of 1MB.
 //
 // This method requires the `servicemanagement.services.report`
 // permission
@@ -2980,7 +3049,7 @@ func (c *ServicesReportCall) Do(opts ...googleapi.CallOption) (*ReportResponse, 
 	}
 	return ret, nil
 	// {
-	//   "description": "Reports operation results to Google Service Control, such as logs and\nmetrics. It should be called after an operation is completed.\n\nIf feasible, the client should aggregate reporting data for up to 5\nseconds to reduce API traffic. Limiting aggregation to 5 seconds is to\nreduce data loss during client crashes. Clients should carefully choose\nthe aggregation time window to avoid data loss risk more than 0.01%\nfor business and compliance reasons.\n\nNOTE: the `ReportRequest` has the size limit of 1MB.\n\nThis method requires the `servicemanagement.services.report` permission\non the specified service. For more information, see\n[Google Cloud IAM](https://cloud.google.com/iam).",
+	//   "description": "Reports operation results to Google Service Control, such as logs and\nmetrics. It should be called after an operation is completed.\n\nIf feasible, the client should aggregate reporting data for up to 5\nseconds to reduce API traffic. Limiting aggregation to 5 seconds is to\nreduce data loss during client crashes. Clients should carefully choose\nthe aggregation time window to avoid data loss risk more than 0.01%\nfor business and compliance reasons.\n\nNOTE: the ReportRequest has the size limit of 1MB.\n\nThis method requires the `servicemanagement.services.report` permission\non the specified service. For more information, see\n[Google Cloud IAM](https://cloud.google.com/iam).",
 	//   "flatPath": "v1/services/{serviceName}:report",
 	//   "httpMethod": "POST",
 	//   "id": "servicecontrol.services.report",
@@ -2989,7 +3058,7 @@ func (c *ServicesReportCall) Do(opts ...googleapi.CallOption) (*ReportResponse, 
 	//   ],
 	//   "parameters": {
 	//     "serviceName": {
-	//       "description": "The service name as specified in its service configuration. For example,\n`\"pubsub.googleapis.com\"`.\n\nSee google.api.Service for the definition of a service name.",
+	//       "description": "The service name as specified in its service configuration. For example,\n`\"pubsub.googleapis.com\"`.\n\nSee\n[google.api.Service](https://cloud.google.com/service-management/reference/rpc/google.api#google.api.Service)\nfor the definition of a service name.",
 	//       "location": "path",
 	//       "required": true,
 	//       "type": "string"

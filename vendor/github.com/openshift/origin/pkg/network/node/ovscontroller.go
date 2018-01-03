@@ -17,7 +17,7 @@ import (
 	"github.com/openshift/origin/pkg/util/ovs"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
 	"github.com/vishvananda/netlink"
 )
@@ -58,10 +58,11 @@ func (oc *ovsController) AlreadySetUp() bool {
 		return false
 	}
 	expectedVersionNote := oc.getVersionNote()
-	for _, flow := range flows {
-		parsed, err := ovs.ParseFlow(ovs.ParseForDump, flow)
-		if err == nil && parsed.Table == ruleVersionTable && parsed.NoteHasPrefix(expectedVersionNote) {
-			return true
+	// The "version" flow should be the last one, so scan from the end
+	for i := len(flows) - 1; i >= 0; i-- {
+		parsed, err := ovs.ParseFlow(ovs.ParseForDump, flows[i])
+		if err == nil && parsed.Table == ruleVersionTable {
+			return parsed.NoteHasPrefix(expectedVersionNote)
 		}
 	}
 	return false
@@ -287,22 +288,11 @@ func getPodNote(sandboxID string) (string, error) {
 }
 
 func (oc *ovsController) SetUpPod(hostVeth, podIP, podMAC, sandboxID string, vnid uint32) (int, error) {
-	var (
-		err    error
-		note   string
-		ofport int
-	)
-	defer func() {
-		if err != nil {
-			PodSetupErrors.Inc()
-		}
-	}()
-
-	note, err = getPodNote(sandboxID)
+	note, err := getPodNote(sandboxID)
 	if err != nil {
 		return -1, err
 	}
-	ofport, err = oc.ensureOvsPort(hostVeth)
+	ofport, err := oc.ensureOvsPort(hostVeth)
 	if err != nil {
 		return -1, err
 	}
@@ -421,15 +411,7 @@ func (oc *ovsController) TearDownPod(hostVeth, podIP, sandboxID string) error {
 		podIP = ip
 	}
 
-	var err error
-	defer func() {
-		if err != nil {
-			PodTeardownErrors.Inc()
-		}
-	}()
-
-	err = oc.cleanupPodFlows(podIP)
-	if err != nil {
+	if err := oc.cleanupPodFlows(podIP); err != nil {
 		return err
 	}
 	_ = oc.SetPodBandwidth(hostVeth, -1, -1)

@@ -26,10 +26,15 @@ import (
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/kubernetes/pkg/credentialprovider"
 	internalapi "k8s.io/kubernetes/pkg/kubelet/apis/cri"
+	"k8s.io/kubernetes/pkg/kubelet/cm"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/images"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 	proberesults "k8s.io/kubernetes/pkg/kubelet/prober/results"
+)
+
+const (
+	fakeSeccompProfileRoot = "/fakeSeccompProfileRoot"
 )
 
 type fakeHTTP struct {
@@ -77,6 +82,8 @@ func NewFakeKubeRuntimeManager(runtimeService internalapi.RuntimeService, imageS
 		runtimeService:      runtimeService,
 		imageService:        imageService,
 		keyring:             keyring,
+		seccompProfileRoot:  fakeSeccompProfileRoot,
+		internalLifecycle:   cm.NewFakeInternalContainerLifecycle(),
 	}
 
 	typedVersion, err := runtimeService.Version(kubeRuntimeAPIVersion)

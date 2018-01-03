@@ -16,8 +16,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/authentication/user"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
+	projectapiv1 "github.com/openshift/api/project/v1"
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	authorizationclient "github.com/openshift/origin/pkg/authorization/generated/internalclientset"
 	"github.com/openshift/origin/pkg/cmd/server/admin"
@@ -25,7 +26,6 @@ import (
 	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
 	"github.com/openshift/origin/pkg/cmd/server/crypto"
 	projectapi "github.com/openshift/origin/pkg/project/apis/project"
-	projectapiv1 "github.com/openshift/origin/pkg/project/apis/project/v1"
 	projectclient "github.com/openshift/origin/pkg/project/generated/internalclientset"
 	testutil "github.com/openshift/origin/test/util"
 	testserver "github.com/openshift/origin/test/util/server"
@@ -77,7 +77,7 @@ func TestFrontProxy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clusterAdminAuthorizationClient := authorizationclient.NewForConfigOrDie(clusterAdminClientConfig)
+	clusterAdminAuthorizationClient := authorizationclient.NewForConfigOrDie(clusterAdminClientConfig).Authorization()
 
 	proxyHTTPHandler, err := newFrontProxyHandler(clusterAdminClientConfig.Host, masterConfig.ServingInfo.ClientCA, proxyUserHeader, proxyGroupHeader, proxyCert)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestFrontProxy(t *testing.T) {
 	defer proxyServer.Close()
 	t.Logf("front proxy server is on %v\n", proxyServer.URL)
 
-	w, err := projectclient.NewForConfigOrDie(clusterAdminClientConfig).Projects().Watch(metav1.ListOptions{})
+	w, err := projectclient.NewForConfigOrDie(clusterAdminClientConfig).Project().Projects().Watch(metav1.ListOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +175,14 @@ func TestFrontProxy(t *testing.T) {
 		dataString := string(data)
 
 		if test.isUnauthorized {
-			if dataString != "Unauthorized\n" || response.StatusCode != http.StatusUnauthorized {
+			if response.StatusCode != http.StatusUnauthorized {
 				t.Errorf("%s does not have unauthorized error: %d %s", test.name, response.StatusCode, dataString)
+			}
+			status := &metav1.Status{}
+			if err := json.Unmarshal(data, status); err != nil {
+				t.Errorf("%s failed to unmarshal status: %v %s", test.name, err, dataString)
+			} else if status.Reason != metav1.StatusReasonUnauthorized || status.Code != http.StatusUnauthorized {
+				t.Errorf("%s does not have unauthorized status: %#v %s", test.name, status, dataString)
 			}
 			continue
 		}

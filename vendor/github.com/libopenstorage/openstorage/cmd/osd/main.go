@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/pkg/reexec"
 	"github.com/libopenstorage/openstorage/api"
 	"github.com/libopenstorage/openstorage/api/server"
+	"github.com/libopenstorage/openstorage/api/flexvolume"
 	osdcli "github.com/libopenstorage/openstorage/cli"
 	"github.com/libopenstorage/openstorage/cluster"
 	"github.com/libopenstorage/openstorage/config"
@@ -214,7 +215,7 @@ func start(c *cli.Context) error {
 		return fmt.Errorf("Invalid OSD config file: Default Driver specified but driver not initialized")
 	}
 
-	if err := server.StartFlexVolumeAPI(config.FlexVolumePort, cfg.Osd.ClusterConfig.DefaultDriver); err != nil {
+	if err := flexvolume.StartFlexVolumeAPI(config.FlexVolumePort, cfg.Osd.ClusterConfig.DefaultDriver); err != nil {
 		return fmt.Errorf("Unable to start flexvolume API: %v", err)
 	}
 
@@ -231,14 +232,13 @@ func start(c *cli.Context) error {
 		if err != nil {
 			return fmt.Errorf("Unable to find cluster instance: %v", err)
 		}
-		if err := cm.Start(); err != nil {
+		if err := cm.Start(0, false); err != nil {
 			return fmt.Errorf("Unable to start cluster manager: %v", err)
 		}
 	}
 
 	// Daemon does not exit.
 	select {}
-	return nil
 }
 
 func showVersion(c *cli.Context) error {

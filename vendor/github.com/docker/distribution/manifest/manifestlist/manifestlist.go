@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/docker/distribution"
-	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/manifest"
+	"github.com/opencontainers/go-digest"
 )
 
 // MediaTypeManifestList specifies the mediaType for manifest lists.
@@ -21,12 +21,6 @@ var SchemaVersion = manifest.Versioned{
 }
 
 func init() {
-	// FIXME: Do not registry the manifest list schema as the manifest lists are
-	// not supported by OpenShift and fetching the manifest list will result in
-	// the import failure. If we return here, it means the docker client will ask
-	// for the schema2 instead.
-	return
-
 	manifestListFunc := func(b []byte) (distribution.Manifest, distribution.Descriptor, error) {
 		m := new(DeserializedManifestList)
 		err := m.UnmarshalJSON(b)
@@ -87,7 +81,7 @@ type ManifestList struct {
 	Manifests []ManifestDescriptor `json:"manifests"`
 }
 
-// References returnes the distribution descriptors for the referenced image
+// References returns the distribution descriptors for the referenced image
 // manifests.
 func (m ManifestList) References() []distribution.Descriptor {
 	dependencies := make([]distribution.Descriptor, len(m.Manifests))

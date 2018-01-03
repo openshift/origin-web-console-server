@@ -27,10 +27,10 @@ import (
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 
+	clientcmd "github.com/openshift/origin/pkg/client/cmd"
 	"github.com/openshift/origin/pkg/cmd/server/crypto"
 	"github.com/openshift/origin/pkg/cmd/util"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
-	ocmd "github.com/openshift/origin/pkg/oc/cli/cmd"
+	cmdversion "github.com/openshift/origin/pkg/cmd/version"
 	projectinternalclientset "github.com/openshift/origin/pkg/project/generated/internalclientset"
 	routeinternalclientset "github.com/openshift/origin/pkg/route/generated/internalclientset"
 	"github.com/openshift/origin/pkg/router"
@@ -160,7 +160,7 @@ func NewCommandTemplateRouter(name string) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(ocmd.NewCmdVersion(name, nil, os.Stdout, ocmd.VersionOptions{}))
+	cmd.AddCommand(cmdversion.NewCmdVersion(name, version.Get(), os.Stdout))
 
 	flag := cmd.Flags()
 	options.Config.Bind(flag)
@@ -415,7 +415,7 @@ func (o *TemplateRouterOptions) Run() error {
 		return err
 	}
 
-	statusPlugin := controller.NewStatusAdmitter(templatePlugin, routeclient, o.RouterName, o.RouterCanonicalHostname)
+	statusPlugin := controller.NewStatusAdmitter(templatePlugin, routeclient.Route(), o.RouterName, o.RouterCanonicalHostname)
 	var nextPlugin router.Plugin = statusPlugin
 	if o.ExtendedValidation {
 		nextPlugin = controller.NewExtendedValidator(nextPlugin, controller.RejectionRecorder(statusPlugin))
@@ -423,7 +423,7 @@ func (o *TemplateRouterOptions) Run() error {
 	uniqueHostPlugin := controller.NewUniqueHost(nextPlugin, o.RouteSelectionFunc(), o.RouterSelection.DisableNamespaceOwnershipCheck, controller.RejectionRecorder(statusPlugin))
 	plugin := controller.NewHostAdmitter(uniqueHostPlugin, o.RouteAdmissionFunc(), o.AllowWildcardRoutes, o.RouterSelection.DisableNamespaceOwnershipCheck, controller.RejectionRecorder(statusPlugin))
 
-	factory := o.RouterSelection.NewFactory(routeclient, projectclient.Projects(), kc)
+	factory := o.RouterSelection.NewFactory(routeclient, projectclient.Project().Projects(), kc)
 	controller := factory.Create(plugin, false, o.EnableIngress)
 	controller.Run()
 

@@ -20,10 +20,10 @@ import (
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
 
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/openshift/origin/pkg/network"
 	networkapi "github.com/openshift/origin/pkg/network/apis/network"
 	networkclient "github.com/openshift/origin/pkg/network/generated/internalclientset"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 	projectapi "github.com/openshift/origin/pkg/project/apis/project"
 )
 
@@ -58,7 +58,7 @@ func (p *ProjectOptions) Complete(f *clientcmd.Factory, c *cobra.Command, args [
 		return err
 	}
 
-	p.Builder = f.NewBuilder(true)
+	p.Builder = f.NewBuilder()
 	p.DefaultNamespace = defaultNamespace
 	p.Oclient = networkClient
 	p.Kclient = kc
@@ -108,9 +108,10 @@ func (p *ProjectOptions) GetProjects() ([]*projectapi.Project, error) {
 	}
 
 	r := p.Builder.
+		Internal().
 		ContinueOnError().
 		NamespaceParam(p.DefaultNamespace).
-		SelectorParam(p.Selector).
+		LabelSelectorParam(p.Selector).
 		ResourceTypeOrNameArgs(true, nameArgs...).
 		Flatten().
 		Do()

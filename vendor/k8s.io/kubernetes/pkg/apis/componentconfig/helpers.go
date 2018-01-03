@@ -21,10 +21,10 @@ import (
 	"fmt"
 	"net"
 
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
-	"k8s.io/kubernetes/pkg/api/v1"
 )
 
 // used for validating command line opts
@@ -59,22 +59,6 @@ func (v IPVar) String() string {
 
 func (v IPVar) Type() string {
 	return "ip"
-}
-
-func (m *ProxyMode) Set(s string) error {
-	*m = ProxyMode(s)
-	return nil
-}
-
-func (m *ProxyMode) String() string {
-	if m != nil {
-		return string(*m)
-	}
-	return ""
-}
-
-func (m *ProxyMode) Type() string {
-	return "ProxyMode"
 }
 
 type PortRangeVar struct {

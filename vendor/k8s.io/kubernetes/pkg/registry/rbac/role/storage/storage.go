@@ -20,7 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/registry/generic"
 	genericregistry "k8s.io/apiserver/pkg/registry/generic/registry"
-	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/rbac"
 	"k8s.io/kubernetes/pkg/registry/rbac/role"
 )
@@ -33,17 +32,15 @@ type REST struct {
 // NewREST returns a RESTStorage object that will work against Role objects.
 func NewREST(optsGetter generic.RESTOptionsGetter) *REST {
 	store := &genericregistry.Store{
-		Copier:                   api.Scheme,
 		NewFunc:                  func() runtime.Object { return &rbac.Role{} },
 		NewListFunc:              func() runtime.Object { return &rbac.RoleList{} },
-		PredicateFunc:            role.Matcher,
 		DefaultQualifiedResource: rbac.Resource("roles"),
 
 		CreateStrategy: role.Strategy,
 		UpdateStrategy: role.Strategy,
 		DeleteStrategy: role.Strategy,
 	}
-	options := &generic.StoreOptions{RESTOptions: optsGetter, AttrFunc: role.GetAttrs}
+	options := &generic.StoreOptions{RESTOptions: optsGetter}
 	if err := store.CompleteWithOptions(options); err != nil {
 		panic(err) // TODO: Propagate error up
 	}

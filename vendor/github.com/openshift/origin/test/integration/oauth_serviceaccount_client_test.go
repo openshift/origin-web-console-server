@@ -16,14 +16,15 @@ import (
 	"github.com/RangelReale/osincli"
 	"github.com/golang/glog"
 
+	corev1 "k8s.io/api/core/v1"
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	apiserverserviceaccount "k8s.io/apiserver/pkg/authentication/serviceaccount"
 	restclient "k8s.io/client-go/rest"
-	kapi "k8s.io/kubernetes/pkg/api"
-	kapiv1 "k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/client/retry"
+	"k8s.io/client-go/util/retry"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
+	kapiv1 "k8s.io/kubernetes/pkg/apis/core/v1"
 	"k8s.io/kubernetes/pkg/serviceaccount"
 
 	buildclient "github.com/openshift/origin/pkg/build/generated/internalclientset"
@@ -67,7 +68,8 @@ func TestOAuthServiceAccountClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	clusterAdminOAuthClient := oauthclient.NewForConfigOrDie(clusterAdminClientConfig)
+	clusterAdminOAuthClient := oauthclient.NewForConfigOrDie(clusterAdminClientConfig).Oauth()
+	clusterAdminUserClient := userclient.NewForConfigOrDie(clusterAdminClientConfig)
 
 	projectName := "hammer-project"
 	if _, _, err := testserver.CreateNewProject(clusterAdminClientConfig, projectName, "harold"); err != nil {
@@ -118,8 +120,8 @@ func TestOAuthServiceAccountClient(t *testing.T) {
 		}
 		for i := range allSecrets.Items {
 			secret := &allSecrets.Items[i]
-			secretv1 := &kapiv1.Secret{}
-			err := kapiv1.Convert_api_Secret_To_v1_Secret(secret, secretv1, nil)
+			secretv1 := &corev1.Secret{}
+			err := kapiv1.Convert_core_Secret_To_v1_Secret(secret, secretv1, nil)
 			if err != nil {
 				return false, err
 			}
@@ -374,6 +376,85 @@ func TestOAuthServiceAccountClient(t *testing.T) {
 		})
 		clusterAdminOAuthClient.OAuthClientAuthorizations().Delete("harold:"+oauthClientConfig.ClientId, nil)
 	}
+
+	{
+		oauthClientConfig := &osincli.ClientConfig{
+			ClientId:     apiserverserviceaccount.MakeUsername(defaultSA.Namespace, defaultSA.Name),
+			ClientSecret: string(oauthSecret.Data[kapi.ServiceAccountTokenKey]),
+			AuthorizeUrl: clusterAdminClientConfig.Host + "/oauth/authorize",
+			TokenUrl:     clusterAdminClientConfig.Host + "/oauth/token",
+			RedirectUrl:  redirectURL,
+			Scope:        scope.Join([]string{"user:info", "role:edit:" + projectName}),
+			SendClientSecretInParams: true,
+		}
+		t.Log("Testing grant flow is reentrant")
+		// First time, the approval steps are needed
+		// Second time, the approval steps are skipped
+		// Then we delete and recreate the user to make the client authorization UID no longer match
+		// Third time, the approval steps are needed
+		// Fourth time, the approval steps are skipped
+		runOAuthFlow(t, clusterAdminClientConfig, projectName, oauthClientConfig, nil, authorizationCodes, authorizationErrors, true, true, []string{
+			"GET /oauth/authorize",
+			"received challenge",
+			"GET /oauth/authorize",
+			"redirect to /oauth/authorize/approve",
+			"form",
+			"POST /oauth/authorize/approve",
+			"redirect to /oauth/authorize",
+			"redirect to /oauthcallback",
+			"code",
+			"scope:" + oauthClientConfig.Scope,
+		})
+		runOAuthFlow(t, clusterAdminClientConfig, projectName, oauthClientConfig, nil, authorizationCodes, authorizationErrors, true, true, []string{
+			"GET /oauth/authorize",
+			"received challenge",
+			"GET /oauth/authorize",
+			"redirect to /oauthcallback",
+			"code",
+			"scope:" + oauthClientConfig.Scope,
+		})
+
+		// Delete the user to make the client authorization UID no longer match
+		// runOAuthFlow will cause the creation of the same user with a different UID during its challenge phase
+		if err := deleteUser(clusterAdminUserClient, "harold"); err != nil {
+			t.Fatalf("Failed to delete and recreate harold user: %v", err)
+		}
+
+		runOAuthFlow(t, clusterAdminClientConfig, projectName, oauthClientConfig, nil, authorizationCodes, authorizationErrors, true, true, []string{
+			"GET /oauth/authorize",
+			"received challenge",
+			"GET /oauth/authorize",
+			"redirect to /oauth/authorize/approve",
+			"form",
+			"POST /oauth/authorize/approve",
+			"redirect to /oauth/authorize",
+			"redirect to /oauthcallback",
+			"code",
+			"scope:" + oauthClientConfig.Scope,
+		})
+		runOAuthFlow(t, clusterAdminClientConfig, projectName, oauthClientConfig, nil, authorizationCodes, authorizationErrors, true, true, []string{
+			"GET /oauth/authorize",
+			"received challenge",
+			"GET /oauth/authorize",
+			"redirect to /oauthcallback",
+			"code",
+			"scope:" + oauthClientConfig.Scope,
+		})
+		clusterAdminOAuthClient.OAuthClientAuthorizations().Delete("harold:"+oauthClientConfig.ClientId, nil)
+	}
+}
+
+func deleteUser(clusterAdminUserClient userclient.UserInterface, name string) error {
+	oldUser, err := clusterAdminUserClient.Users().Get(name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	for _, identity := range oldUser.Identities {
+		if err := clusterAdminUserClient.Identities().Delete(identity, nil); err != nil {
+			return err
+		}
+	}
+	return clusterAdminUserClient.Users().Delete(name, nil)
 }
 
 func drain(ch chan string) {
@@ -516,7 +597,7 @@ func runOAuthFlow(
 
 		whoamiConfig := restclient.AnonymousClientConfig(clusterAdminClientConfig)
 		whoamiConfig.BearerToken = accessData.AccessToken
-		whoamiBuildClient := buildclient.NewForConfigOrDie(whoamiConfig)
+		whoamiBuildClient := buildclient.NewForConfigOrDie(whoamiConfig).Build()
 		whoamiUserClient := userclient.NewForConfigOrDie(whoamiConfig)
 
 		_, err = whoamiBuildClient.Builds(projectName).List(metav1.ListOptions{})

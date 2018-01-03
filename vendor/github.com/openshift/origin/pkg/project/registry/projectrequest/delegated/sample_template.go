@@ -1,14 +1,14 @@
 package delegated
 
 import (
+	"k8s.io/api/rbac/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubernetes/pkg/apis/rbac"
-	"k8s.io/kubernetes/pkg/apis/rbac/v1beta1"
 
+	projectapiv1 "github.com/openshift/api/project/v1"
 	oapi "github.com/openshift/origin/pkg/api"
 	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
 	projectapi "github.com/openshift/origin/pkg/project/apis/project"
-	projectapiv1 "github.com/openshift/origin/pkg/project/apis/project/v1"
 	templateapi "github.com/openshift/origin/pkg/template/apis/template"
 )
 

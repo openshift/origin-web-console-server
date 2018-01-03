@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/volume"
 )
 
@@ -70,7 +70,7 @@ func (a *flexVolumeAttacher) GetDeviceMountPath(spec *volume.Spec) (string, erro
 // MountDevice is part of the volume.Attacher interface
 func (a *flexVolumeAttacher) MountDevice(spec *volume.Spec, devicePath string, deviceMountPath string) error {
 	// Mount only once.
-	alreadyMounted, err := prepareForMount(a.plugin.host.GetMounter(), deviceMountPath)
+	alreadyMounted, err := prepareForMount(a.plugin.host.GetMounter(a.plugin.GetPluginName()), deviceMountPath)
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (a *flexVolumeAttacher) MountDevice(spec *volume.Spec, devicePath string, d
 		// Devicepath is empty if the plugin does not support attach calls. Ignore mountDevice calls if the
 		// plugin does not implement attach interface.
 		if devicePath != "" {
-			return (*attacherDefaults)(a).MountDevice(spec, devicePath, deviceMountPath, a.plugin.host.GetMounter())
+			return (*attacherDefaults)(a).MountDevice(spec, devicePath, deviceMountPath, a.plugin.host.GetMounter(a.plugin.GetPluginName()))
 		} else {
 			return nil
 		}
@@ -113,6 +113,8 @@ func (a *flexVolumeAttacher) VolumesAreAttached(specs []*volume.Spec, nodeName t
 				volumesAttachedCheck[spec] = false
 				glog.V(2).Infof("VolumesAreAttached: check volume (%q) is no longer attached", spec.Name())
 			}
+		} else {
+			return nil, err
 		}
 	}
 	return volumesAttachedCheck, nil

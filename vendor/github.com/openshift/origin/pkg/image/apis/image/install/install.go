@@ -5,21 +5,18 @@ import (
 	"k8s.io/apimachinery/pkg/apimachinery/registered"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 
+	"github.com/openshift/api/image/docker10"
+	"github.com/openshift/api/image/dockerpre012"
 	"github.com/openshift/origin/pkg/api/legacy"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
-	"github.com/openshift/origin/pkg/image/apis/image/docker10"
-	"github.com/openshift/origin/pkg/image/apis/image/dockerpre012"
 	imageapiv1 "github.com/openshift/origin/pkg/image/apis/image/v1"
 )
 
 func init() {
-	legacy.InstallLegacy(imageapi.GroupName, imageapi.AddToSchemeInCoreGroup, imageapiv1.AddToSchemeInCoreGroup,
-		sets.NewString("Image", "ImageSignature"),
-		kapi.Registry, kapi.Scheme,
-	)
-	Install(kapi.GroupFactoryRegistry, kapi.Registry, kapi.Scheme)
+	legacy.InstallLegacyImage(legacyscheme.Scheme, legacyscheme.Registry)
+	Install(legacyscheme.GroupFactoryRegistry, legacyscheme.Registry, legacyscheme.Scheme)
 }
 
 // Install registers the API group and adds types to a scheme

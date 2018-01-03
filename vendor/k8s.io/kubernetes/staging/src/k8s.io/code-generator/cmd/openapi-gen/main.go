@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 
 	"k8s.io/gengo/args"
-	"k8s.io/code-generator/cmd/openapi-gen/generators"
+	"k8s.io/kube-openapi/pkg/generators"
 
 	"github.com/golang/glog"
 )
@@ -32,8 +32,8 @@ func main() {
 	arguments := args.Default()
 
 	// Override defaults.
-	arguments.OutputFileBaseName = "openapi_generated"
 	arguments.GoHeaderFilePath = filepath.Join(args.DefaultSourceTree(), "k8s.io/kubernetes/hack/boilerplate/boilerplate.go.txt")
+	arguments.OutputFileBaseName = "openapi_generated"
 
 	// Run it.
 	if err := arguments.Execute(

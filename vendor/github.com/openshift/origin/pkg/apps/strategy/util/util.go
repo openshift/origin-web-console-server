@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	kapi "k8s.io/kubernetes/pkg/api"
 	kapiref "k8s.io/kubernetes/pkg/api/ref"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kcoreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
 
-	deployutil "github.com/openshift/origin/pkg/apps/util"
+	appsutil "github.com/openshift/origin/pkg/apps/util"
 )
 
 // RecordConfigEvent records an event for the deployment config referenced by the
@@ -21,12 +22,12 @@ import (
 func RecordConfigEvent(client kcoreclient.EventsGetter, deployment *kapi.ReplicationController, decoder runtime.Decoder, eventType, reason, msg string) {
 	t := metav1.Time{Time: time.Now()}
 	var obj runtime.Object = deployment
-	if config, err := deployutil.DecodeDeploymentConfig(deployment, decoder); err == nil {
+	if config, err := appsutil.DecodeDeploymentConfig(deployment, decoder); err == nil {
 		obj = config
 	} else {
 		glog.Errorf("Unable to decode deployment config from %s/%s: %v", deployment.Namespace, deployment.Name, err)
 	}
-	ref, err := kapiref.GetReference(kapi.Scheme, obj)
+	ref, err := kapiref.GetReference(legacyscheme.Scheme, obj)
 	if err != nil {
 		glog.Errorf("Unable to get reference for %#v: %v", obj, err)
 		return
@@ -40,7 +41,7 @@ func RecordConfigEvent(client kcoreclient.EventsGetter, deployment *kapi.Replica
 		Reason:         reason,
 		Message:        msg,
 		Source: kapi.EventSource{
-			Component: deployutil.DeployerPodNameFor(deployment),
+			Component: appsutil.DeployerPodNameFor(deployment),
 		},
 		FirstTimestamp: t,
 		LastTimestamp:  t,
@@ -58,7 +59,7 @@ func RecordConfigWarnings(client kcoreclient.EventsGetter, rc *kapi.ReplicationC
 	if rc == nil {
 		return
 	}
-	events, err := client.Events(rc.Namespace).Search(kapi.Scheme, rc)
+	events, err := client.Events(rc.Namespace).Search(legacyscheme.Scheme, rc)
 	if err != nil {
 		fmt.Fprintf(out, "--> Error listing events for replication controller %s: %v\n", rc.Name, err)
 		return

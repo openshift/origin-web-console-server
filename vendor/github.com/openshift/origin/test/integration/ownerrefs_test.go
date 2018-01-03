@@ -6,7 +6,8 @@ import (
 
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/apimachinery/pkg/types"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	authorizationclient "github.com/openshift/origin/pkg/authorization/generated/internalclientset"
@@ -26,7 +27,7 @@ func TestOwnerRefRestriction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	clusterAdminAuthorizationClient := authorizationclient.NewForConfigOrDie(clientConfig)
+	clusterAdminAuthorizationClient := authorizationclient.NewForConfigOrDie(clientConfig).Authorization()
 
 	_, err = clusterAdminAuthorizationClient.ClusterRoles().Create(&authorizationapi.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
@@ -64,8 +65,18 @@ func TestOwnerRefRestriction(t *testing.T) {
 
 	_, err = creatorClient.Core().Services("foo").Create(&kapi.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            "my-service",
-			OwnerReferences: []metav1.OwnerReference{{}},
+			Name: "my-service",
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "foo",
+				Kind:       "bar",
+				Name:       "baz",
+				UID:        types.UID("baq"),
+			}},
+		},
+		Spec: kapi.ServiceSpec{
+			Ports: []kapi.ServicePort{
+				{Port: 80},
+			},
 		},
 	})
 	if err == nil {

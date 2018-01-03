@@ -5,7 +5,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 )
 
 const (
@@ -90,6 +90,10 @@ const (
 	// if the buildconfig does not specify a value.  This only applies to buildconfigs created
 	// via the new group api resource, not the legacy resource.
 	DefaultFailedBuildsHistoryLimit = int32(5)
+
+	// WebHookSecretKey is the key used to identify the value containing the webhook invocation
+	// secret within a secret referenced by a webhook trigger.
+	WebHookSecretKey = "WebHookSecretKey"
 )
 
 var (
@@ -1051,14 +1055,27 @@ type BuildConfigStatus struct {
 	LastVersion int64
 }
 
+// SecretLocalReference contains information that points to the local secret being used
+type SecretLocalReference struct {
+	// Name is the name of the resource in the same namespace being referenced
+	Name string
+}
+
 // WebHookTrigger is a trigger that gets invoked using a webhook type of post
 type WebHookTrigger struct {
 	// Secret used to validate requests.
+	// Deprecated: use SecretReference instead.
 	Secret string
 
 	// AllowEnv determines whether the webhook can set environment variables; can only
 	// be set to true for GenericWebHook
 	AllowEnv bool
+
+	// SecretReference is a reference to a secret in the same namespace,
+	// containing the value to be validated when the webhook is invoked.
+	// The secret being referenced must contain a key named "WebHookSecretKey", the value
+	// of which will be checked against the value supplied in the webhook invocation.
+	SecretReference *SecretLocalReference
 }
 
 // ImageChangeTrigger allows builds to be triggered when an ImageStream changes

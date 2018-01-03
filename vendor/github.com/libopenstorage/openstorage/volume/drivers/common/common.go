@@ -2,7 +2,6 @@ package common
 
 import (
 	"github.com/libopenstorage/openstorage/pkg/proto/time"
-
 	"github.com/libopenstorage/openstorage/api"
 	"github.com/libopenstorage/openstorage/volume"
 	"github.com/portworx/kvdb"
@@ -29,6 +28,7 @@ func NewVolume(
 	}
 }
 
+// NewDefaultStoreEnumerator returns a default store enumerator
 func NewDefaultStoreEnumerator(driver string, kvdb kvdb.Kvdb) volume.StoreEnumerator {
 	return newDefaultStoreEnumerator(driver, kvdb)
 }

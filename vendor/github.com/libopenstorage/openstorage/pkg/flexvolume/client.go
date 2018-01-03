@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"go.pedge.io/dlog"
-	"go.pedge.io/pb/go/google/protobuf"
+	"github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"
 )
 
@@ -28,7 +28,7 @@ func newClient(apiClient APIClient) *client {
 func (c *client) Init() error {
 	_, err := c.apiClient.Init(
 		context.Background(),
-		&google_protobuf.Empty{},
+		&empty.Empty{},
 	)
 	return err
 }
@@ -48,7 +48,7 @@ func (c *client) Attach(jsonOptions map[string]string) error {
 	return err
 }
 
-func (c *client) Detach(mountDevice string) error {
+func (c *client) Detach(mountDevice string, unmountBeforeDetach bool) error {
 	_, err := c.apiClient.Detach(
 		context.Background(),
 		&DetachRequest{
@@ -94,9 +94,8 @@ func newFailureBytes(err error) []byte {
 func newOutput(err error) []byte {
 	if err != nil {
 		return newFailureBytes(err)
-	} else {
-		return successBytes
 	}
+	return successBytes
 }
 
 func newAttachSuccessOutput(deviceID string) []byte {

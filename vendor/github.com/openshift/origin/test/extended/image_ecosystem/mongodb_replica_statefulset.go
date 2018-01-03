@@ -9,7 +9,7 @@ import (
 
 	exutil "github.com/openshift/origin/test/extended/util"
 	dbutil "github.com/openshift/origin/test/extended/util/db"
-	kapiv1 "k8s.io/kubernetes/pkg/api/v1"
+	kapiv1 "k8s.io/api/core/v1"
 )
 
 var _ = g.Describe("[Conformance][image_ecosystem][mongodb][Slow] openshift mongodb replication (with statefulset)", func() {
@@ -50,15 +50,7 @@ var _ = g.Describe("[Conformance][image_ecosystem][mongodb][Slow] openshift mong
 					3,
 				)
 				o.Expect(err).NotTo(o.HaveOccurred())
-
-				defer func() {
-					// We're removing only PVs because all other things will be removed
-					// together with namespace.
-					err := exutil.CleanupHostPathVolumes(oc.AdminKubeClient().Core().PersistentVolumes(), oc.Namespace())
-					if err != nil {
-						ginkgolog("WARNING: couldn't cleanup persistent volumes: %v", err)
-					}
-				}()
+				defer cleanup(oc)
 
 				g.By("creating a new app")
 				o.Expect(

@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/codegangsta/cli"
 	"github.com/libopenstorage/openstorage/api"
+	clusterclient "github.com/libopenstorage/openstorage/api/client/cluster"
 	volumeclient "github.com/libopenstorage/openstorage/api/client/volume"
+	"github.com/libopenstorage/openstorage/cluster"
 	"github.com/libopenstorage/openstorage/volume"
 )
 
@@ -51,7 +54,7 @@ func processLabels(s string) (map[string]string, error) {
 
 func (v *volDriver) volumeOptions(context *cli.Context) {
 	// Currently we choose the default version
-	clnt, err := volumeclient.NewDriverClient("", v.name, volume.APIVersion)
+	clnt, err := volumeclient.NewDriverClient("", v.name, volume.APIVersion, "")
 	if err != nil {
 		fmt.Printf("Failed to initialize client library: %v\n", err)
 		os.Exit(1)
@@ -166,7 +169,7 @@ func (v *volDriver) volumeAttach(context *cli.Context) {
 	v.volumeOptions(context)
 	volumeID := context.Args()[0]
 
-	devicePath, err := v.volDriver.Attach(string(volumeID))
+	devicePath, err := v.volDriver.Attach(string(volumeID), nil)
 	if err != nil {
 		cmdError(context, fn, err)
 		return
@@ -183,7 +186,7 @@ func (v *volDriver) volumeDetach(context *cli.Context) {
 	}
 	volumeID := context.Args()[0]
 	v.volumeOptions(context)
-	err := v.volDriver.Detach(string(volumeID))
+	err := v.volDriver.Detach(string(volumeID), false)
 	if err != nil {
 		cmdError(context, fn, err)
 		return
@@ -229,23 +232,6 @@ func (v *volDriver) volumeStats(context *cli.Context) {
 	}
 
 	cmdOutputProto(stats, context.GlobalBool("raw"))
-}
-
-func (v *volDriver) volumeAlerts(context *cli.Context) {
-	v.volumeOptions(context)
-	fn := "alerts"
-	if len(context.Args()) != 1 {
-		missingParameter(context, fn, "volumeID", "Invalid number of arguments")
-		return
-	}
-
-	alerts, err := v.volDriver.Alerts(string(context.Args()[0]))
-	if err != nil {
-		cmdError(context, fn, err)
-		return
-	}
-
-	cmdOutputProto(alerts, context.GlobalBool("raw"))
 }
 
 func (v *volDriver) volumeEnumerate(context *cli.Context) {
@@ -347,6 +333,24 @@ func (v *volDriver) snapEnumerate(context *cli.Context) {
 	cmdOutputVolumes(snaps, context.GlobalBool("raw"))
 }
 
+func (v *volDriver) volumeAlerts(context *cli.Context) {
+	v.volumeOptions(context)
+
+	clnt, err := clusterclient.NewClusterClient("", cluster.APIVersion)
+	if err != nil {
+		fmt.Printf("Failed to initialize client library: %v\n", err)
+		return
+	}
+	manager := clusterclient.ClusterManager(clnt)
+	alerts, err := manager.EnumerateAlerts(time.Time{}, time.Time{}, api.ResourceType_RESOURCE_TYPE_VOLUME)
+	if err != nil {
+		fmt.Printf("Unable to enumerate alerts: %v\n", err)
+		return
+	}
+
+	cmdOutputProto(alerts, context.GlobalBool("raw"))
+}
+
 // baseVolumeCommand exports commands common to block and file volume drivers.
 func baseVolumeCommand(v *volDriver) []cli.Command {
 
@@ -386,10 +390,10 @@ func baseVolumeCommand(v *volDriver) []cli.Command {
 					Usage: "replication factor [1..2]",
 					Value: 1,
 				},
-				cli.IntFlag{
+				cli.StringFlag{
 					Name:  "cos",
-					Usage: "Class of Service: [1..9]",
-					Value: 1,
+					Usage: "Class of Service: [high|medium|low]",
+					Value: "low",
 				},
 				cli.IntFlag{
 					Name:  "snap_interval,si",
@@ -452,7 +456,7 @@ func baseVolumeCommand(v *volDriver) []cli.Command {
 		},
 		{
 			Name:   "alerts",
-			Usage:  "volume alerts",
+			Usage:  "Enumerate volume alerts",
 			Action: v.volumeAlerts,
 		},
 		{

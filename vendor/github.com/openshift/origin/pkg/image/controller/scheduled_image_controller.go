@@ -9,7 +9,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/flowcontrol"
-	kapi "k8s.io/kubernetes/pkg/api"
 
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
 	imageclient "github.com/openshift/origin/pkg/image/generated/internalclientset/typed/image/internalversion"
@@ -108,7 +107,7 @@ func (s *ScheduledImageStreamController) deleteImageStream(obj interface{}) {
 	}
 	key, err := cache.MetaNamespaceKeyFunc(stream)
 	if err != nil {
-		glog.V(2).Infof("unable to get namespace key function for stream %q: %v", stream, err)
+		glog.V(2).Infof("unable to get namespace key function for stream %s/%s: %v", stream.Namespace, stream.Name, err)
 		return
 	}
 	s.scheduler.Remove(key, nil)
@@ -122,7 +121,7 @@ func (s *ScheduledImageStreamController) enqueueImageStream(stream *imageapi.Ima
 	if needsScheduling(stream) {
 		key, err := cache.MetaNamespaceKeyFunc(stream)
 		if err != nil {
-			glog.V(2).Infof("unable to get namespace key function for stream %q: %v", stream, err)
+			glog.V(2).Infof("unable to get namespace key function for stream %s/%s: %v", stream.Namespace, stream.Name, err)
 			return
 		}
 		s.scheduler.Add(key, uniqueItem{uid: string(stream.UID), resourceVersion: stream.ResourceVersion})
@@ -169,11 +168,7 @@ func (s *ScheduledImageStreamController) syncTimedByName(namespace, name string)
 		return ErrNotImportable
 	}
 
-	copy, err := kapi.Scheme.DeepCopy(sharedStream)
-	if err != nil {
-		return err
-	}
-	stream := copy.(*imageapi.ImageStream)
+	stream := sharedStream.DeepCopy()
 	resetScheduledTags(stream)
 
 	glog.V(3).Infof("Scheduled import of stream %s/%s...", stream.Namespace, stream.Name)

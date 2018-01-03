@@ -37,7 +37,7 @@ var (
 )
 
 // InitFunc initialization function for alert.
-type InitFunc func(string, string, []string, string, map[string]string) (Alert, error)
+type InitFunc func(kv kvdb.Kvdb, clusterID string) (Alert, error)
 
 // AlertWatcherFunc is a function type used as a callback for KV WatchTree.
 type AlertWatcherFunc func(*api.Alert, api.AlertActionType, string, string) error
@@ -55,6 +55,10 @@ type Alert interface {
 	// Raise raises an Alert.
 	Raise(alert *api.Alert) error
 
+	// Raise raises an Alert only if another alert with given resource type,
+	// resource id, and unqiue_tage doesnt exists already.
+	RaiseIfNotExist(alert *api.Alert) error
+
 	// Subscribe allows a child (dependent) alert to subscribe to a parent alert
 	Subscribe(parentAlertType int64, childAlert *api.Alert) error
 
@@ -65,7 +69,11 @@ type Alert interface {
 	Enumerate(filter *api.Alert) ([]*api.Alert, error)
 
 	// EnumerateWithinTimeRange enumerates Alert between timeStart and timeEnd.
-	EnumerateWithinTimeRange(timeStart time.Time, timeEnd time.Time, resourceType api.ResourceType) ([]*api.Alert, error)
+	EnumerateWithinTimeRange(
+		timeStart time.Time,
+		timeEnd time.Time,
+		resourceType api.ResourceType,
+	) ([]*api.Alert, error)
 
 	// Erase erases an Alert.
 	Erase(resourceType api.ResourceType, alertID int64) error
@@ -73,8 +81,17 @@ type Alert interface {
 	// Clear an Alert.
 	Clear(resourceType api.ResourceType, alertID int64, ttl uint64) error
 
-	// Watch on all Alerts for the given clusterID. It uses the global
-	// kvdb options provided while creating the alertClient object to access this cluster
+	// Clear an Alert for a resource with unique tag.
+	ClearByUniqueTag(
+		resourceType api.ResourceType,
+		resourceId string,
+		uniqueTag string,
+		ttl uint64,
+	) error
+
+	// Watch on all Alerts for the given clusterID. It uses the global kvdb
+	// options provided while creating the alertClient object to access this
+	// cluster
 	Watch(clusterID string, alertWatcher AlertWatcherFunc) error
 }
 
@@ -88,25 +105,12 @@ func Shutdown() {
 }
 
 // New returns a new alert instance tied with a clusterID and kvdb.
-func New(
-	name string,
-	kvdbName string,
-	kvdbBase string,
-	kvdbMachines []string,
-	clusterID string,
-	kvdbOptions map[string]string,
-) (Alert, error) {
+func New(name string, clusterID string, kv kvdb.Kvdb) (Alert, error) {
 	lock.Lock()
 	defer lock.Unlock()
 
 	if initFunc, exists := drivers[name]; exists {
-		driver, err := initFunc(
-			kvdbName,
-			kvdbBase,
-			kvdbMachines,
-			clusterID,
-			kvdbOptions,
-		)
+		driver, err := initFunc(kv, clusterID)
 		if err != nil {
 			return nil, err
 		}

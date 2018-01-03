@@ -16,8 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/apiserver/pkg/authentication/user"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
-	kapi "k8s.io/kubernetes/pkg/api"
 	authorizationapi "k8s.io/kubernetes/pkg/apis/authorization"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kquota "k8s.io/kubernetes/pkg/quota"
 
 	oauthorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
@@ -1108,8 +1108,11 @@ func TestTagsChanged(t *testing.T) {
 		// we can't reuse the same map twice, it causes both to be modified during updates
 		var previousTagHistory = test.existingTagHistory
 		if previousTagHistory != nil {
-			obj, _ := kapi.Scheme.DeepCopy(previousTagHistory)
-			previousTagHistory, _ = obj.(map[string]imageapi.TagEventList)
+			previousTagHistoryCopy := map[string]imageapi.TagEventList{}
+			for k, v := range previousTagHistory {
+				previousTagHistory[k] = *v.DeepCopy()
+			}
+			previousTagHistory = previousTagHistoryCopy
 		}
 		previousStream := &imageapi.ImageStream{
 			ObjectMeta: metav1.ObjectMeta{

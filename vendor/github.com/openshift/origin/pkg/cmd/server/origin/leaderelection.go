@@ -9,15 +9,15 @@ import (
 
 	"github.com/golang/glog"
 
+	v1corev1 "k8s.io/api/core/v1"
 	kutilrand "k8s.io/apimachinery/pkg/util/rand"
+	kclientsetexternal "k8s.io/client-go/kubernetes"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
-	v1corev1 "k8s.io/client-go/pkg/api/v1"
+	"k8s.io/client-go/tools/leaderelection"
+	rl "k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/client-go/tools/record"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/apis/componentconfig"
-	kclientsetexternal "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
-	"k8s.io/kubernetes/pkg/client/leaderelection"
-	rl "k8s.io/kubernetes/pkg/client/leaderelection/resourcelock"
 
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	"github.com/openshift/origin/pkg/cmd/server/etcd"
@@ -76,7 +76,7 @@ func NewLeaderElection(options configapi.MasterConfig, leader componentconfig.Le
 	events.StartRecordingToSink(&v1core.EventSinkImpl{Interface: eventClient})
 	lock, err := rl.New(election.LockResource.Resource, namespace, name, kc.Core(), rl.ResourceLockConfig{
 		Identity:      id,
-		EventRecorder: events.NewRecorder(kapi.Scheme, v1corev1.EventSource{Component: name}),
+		EventRecorder: events.NewRecorder(legacyscheme.Scheme, v1corev1.EventSource{Component: name}),
 	})
 	if err != nil {
 		return nil, nil, err

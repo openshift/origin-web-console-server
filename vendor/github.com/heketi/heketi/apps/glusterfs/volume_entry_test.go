@@ -117,15 +117,13 @@ func TestNewVolumeEntryFromRequestOnlySize(t *testing.T) {
 	tests.Assert(t, v.Info.Cluster == "")
 	tests.Assert(t, len(v.Info.Id) != 0)
 	tests.Assert(t, len(v.Bricks) == 0)
-
+	tests.Assert(t, v.Info.Durability.Type == "")
 }
 
-func TestNewVolumeEntryFromRequestReplica(t *testing.T) {
-
-	// :TODO: add tests for each durability
-
+func TestNewVolumeEntryFromRequestReplicaDefault(t *testing.T) {
 	req := &api.VolumeCreateRequest{}
 	req.Size = 1024
+	req.Durability.Type = api.DurabilityReplicate
 
 	v := NewVolumeEntryFromRequest(req)
 	tests.Assert(t, v.Info.Name == "vol_"+v.Info.Id)
@@ -136,7 +134,84 @@ func TestNewVolumeEntryFromRequestReplica(t *testing.T) {
 	tests.Assert(t, v.Info.Cluster == "")
 	tests.Assert(t, len(v.Info.Id) != 0)
 	tests.Assert(t, len(v.Bricks) == 0)
+	tests.Assert(t, v.Info.Durability.Type == api.DurabilityReplicate)
+	tests.Assert(t, v.Info.Durability.Replicate.Replica == 0)
+}
 
+func TestNewVolumeEntryFromRequestReplica5(t *testing.T) {
+	req := &api.VolumeCreateRequest{}
+	req.Size = 1024
+	req.Durability.Type = api.DurabilityReplicate
+	req.Durability.Replicate.Replica = 5
+
+	v := NewVolumeEntryFromRequest(req)
+	tests.Assert(t, v.Info.Name == "vol_"+v.Info.Id)
+	tests.Assert(t, len(v.Info.Clusters) == 0)
+	tests.Assert(t, v.Info.Snapshot.Enable == false)
+	tests.Assert(t, v.Info.Snapshot.Factor == 1)
+	tests.Assert(t, v.Info.Size == 1024)
+	tests.Assert(t, v.Info.Cluster == "")
+	tests.Assert(t, len(v.Info.Id) != 0)
+	tests.Assert(t, len(v.Bricks) == 0)
+	tests.Assert(t, v.Info.Durability.Type == api.DurabilityReplicate)
+	tests.Assert(t, v.Info.Durability.Replicate.Replica == 5)
+}
+
+func TestNewVolumeEntryFromRequestDistribute(t *testing.T) {
+	req := &api.VolumeCreateRequest{}
+	req.Size = 1024
+	req.Durability.Type = api.DurabilityDistributeOnly
+
+	v := NewVolumeEntryFromRequest(req)
+	tests.Assert(t, v.Info.Name == "vol_"+v.Info.Id)
+	tests.Assert(t, len(v.Info.Clusters) == 0)
+	tests.Assert(t, v.Info.Snapshot.Enable == false)
+	tests.Assert(t, v.Info.Snapshot.Factor == 1)
+	tests.Assert(t, v.Info.Size == 1024)
+	tests.Assert(t, v.Info.Cluster == "")
+	tests.Assert(t, len(v.Info.Id) != 0)
+	tests.Assert(t, len(v.Bricks) == 0)
+	tests.Assert(t, v.Info.Durability.Type == api.DurabilityDistributeOnly)
+}
+
+func TestNewVolumeEntryFromRequestDisperseDefault(t *testing.T) {
+	req := &api.VolumeCreateRequest{}
+	req.Size = 1024
+	req.Durability.Type = api.DurabilityEC
+
+	v := NewVolumeEntryFromRequest(req)
+	tests.Assert(t, v.Info.Name == "vol_"+v.Info.Id)
+	tests.Assert(t, len(v.Info.Clusters) == 0)
+	tests.Assert(t, v.Info.Snapshot.Enable == false)
+	tests.Assert(t, v.Info.Snapshot.Factor == 1)
+	tests.Assert(t, v.Info.Size == 1024)
+	tests.Assert(t, v.Info.Cluster == "")
+	tests.Assert(t, len(v.Info.Id) != 0)
+	tests.Assert(t, len(v.Bricks) == 0)
+	tests.Assert(t, v.Info.Durability.Type == api.DurabilityEC)
+	tests.Assert(t, v.Info.Durability.Disperse.Data == 0)
+	tests.Assert(t, v.Info.Durability.Disperse.Redundancy == 0)
+}
+
+func TestNewVolumeEntryFromRequestDisperseDefault48(t *testing.T) {
+	req := &api.VolumeCreateRequest{}
+	req.Size = 1024
+	req.Durability.Type = api.DurabilityEC
+	req.Durability.Disperse.Data = 8
+	req.Durability.Disperse.Redundancy = 4
+
+	v := NewVolumeEntryFromRequest(req)
+	tests.Assert(t, v.Info.Name == "vol_"+v.Info.Id)
+	tests.Assert(t, len(v.Info.Clusters) == 0)
+	tests.Assert(t, v.Info.Snapshot.Enable == false)
+	tests.Assert(t, v.Info.Snapshot.Factor == 1)
+	tests.Assert(t, v.Info.Size == 1024)
+	tests.Assert(t, v.Info.Cluster == "")
+	tests.Assert(t, len(v.Info.Id) != 0)
+	tests.Assert(t, len(v.Bricks) == 0)
+	tests.Assert(t, v.Info.Durability.Type == api.DurabilityEC)
+	tests.Assert(t, v.Info.Durability.Disperse.Data == 8)
+	tests.Assert(t, v.Info.Durability.Disperse.Redundancy == 4)
 }
 
 func TestNewVolumeEntryFromRequestClusters(t *testing.T) {
@@ -555,7 +630,7 @@ func TestVolumeEntryCreateTwoBricks(t *testing.T) {
 	v := createSampleVolumeEntry(250)
 
 	// Set a GID
-	v.gidRequested = gid
+	v.Info.Gid = gid
 
 	err = v.Create(app.db, app.executor, app.allocator)
 	tests.Assert(t, err == nil, err)
@@ -660,13 +735,12 @@ func TestVolumeEntryCreateBrickDivision(t *testing.T) {
 	)
 	tests.Assert(t, err == nil)
 
-	// Create a volume who will be broken down to
-	// Shouldn't be able to break it down enough to allocate volume
+	// Create a volume which is so big that it does
+	// not fit into a single replica set
 	v := createSampleVolumeEntry(2000)
 	err = v.Create(app.db, app.executor, app.allocator)
 	tests.Assert(t, err == nil)
 
-	// Check database volume does not exist
 	var info *api.VolumeInfoResponse
 	var nodelist sort.StringSlice
 	err = app.db.View(func(tx *bolt.Tx) error {
@@ -701,9 +775,18 @@ func TestVolumeEntryCreateBrickDivision(t *testing.T) {
 	tests.Assert(t, err == nil)
 
 	// Will need 3 splits for a total of 8 bricks + replicas
+	//
+	// NOTE: Why 8 bricksets of 250GB instead of 4 bricksets
+	// of 500GB each? Because the disk needed for hosting
+	// a brick if size X is a little larger than X, because
+	// we additionally allocate at least some space for metadata.
+	// Hence we will end up using 250GB bricks, and no two bricks
+	// will be on the same disk. Requesting slightly less than
+	// 2000GB, e.g. 1940GB yields a four 485GB bricksets.
+	//
 	tests.Assert(t, len(info.Bricks) == 16)
 	for b := 1; b < 16; b++ {
-		tests.Assert(t, info.Bricks[0].Size == info.Bricks[b].Size, b)
+		tests.Assert(t, 250*GB == info.Bricks[b].Size, b)
 	}
 	tests.Assert(t, info.Cluster == v.Info.Cluster)
 
@@ -1022,7 +1105,7 @@ func TestVolumeEntryCreateBrickCreationFailure(t *testing.T) {
 	// size of 100G * 1.5 = 150GB.
 	v := createSampleVolumeEntry(200)
 	err = v.Create(app.db, app.executor, app.allocator)
-	tests.Assert(t, err == mockerror)
+	tests.Assert(t, err == mockerror, err, mockerror)
 
 	// Check database is still clean. No bricks and No volumes
 	err = app.db.View(func(tx *bolt.Tx) error {
@@ -1067,7 +1150,7 @@ func TestVolumeEntryCreateVolumeCreationFailure(t *testing.T) {
 
 	// Cause a brick creation failure
 	mockerror := errors.New("MOCK")
-	app.xo.MockVolumeCreate = func(host string, volume *executors.VolumeRequest) (*executors.SingleVolumeInfo, error) {
+	app.xo.MockVolumeCreate = func(host string, volume *executors.VolumeRequest) (*executors.Volume, error) {
 		return nil, mockerror
 	}
 
@@ -1497,7 +1580,8 @@ func TestVolumeEntryNameConflictMultiCluster(t *testing.T) {
 		v := createSampleVolumeEntry(1024)
 		v.Info.Name = "myvol"
 		err = v.Create(app.db, app.executor, app.allocator)
-		tests.Assert(t, err == nil)
+		logger.Info("%v", v.Info.Cluster)
+		tests.Assert(t, err == nil, err)
 	}
 
 	// Create another volume same name
@@ -1545,16 +1629,16 @@ func TestReplaceBrickInVolume(t *testing.T) {
 		}
 		return nil
 	})
-	app.xo.MockVolumeInfo = func(host string, volume string) (*executors.SingleVolumeInfo, error) {
+	app.xo.MockVolumeInfo = func(host string, volume string) (*executors.Volume, error) {
 		var bricks []executors.Brick
 		brick := executors.Brick{Name: brickNames[0]}
 		bricks = append(bricks, brick)
 		brick = executors.Brick{Name: brickNames[1]}
 		bricks = append(bricks, brick)
 		Bricks := executors.Bricks{
-			Bricks: bricks,
+			BrickList: bricks,
 		}
-		b := &executors.SingleVolumeInfo{
+		b := &executors.Volume{
 			Bricks: Bricks,
 		}
 		return b, nil
@@ -1590,4 +1674,48 @@ func TestReplaceBrickInVolume(t *testing.T) {
 
 	tests.Assert(t, !brickOnOldNode, "brick found on oldNode")
 	tests.Assert(t, !oldBrickIdExists, "old Brick not deleted")
+}
+
+func TestNewVolumeEntryWithVolumeOptions(t *testing.T) {
+	tmpfile := tests.Tempfile()
+	defer os.Remove(tmpfile)
+
+	app := NewTestApp(tmpfile)
+	defer app.Close()
+
+	// Create a cluster in the database
+	err := setupSampleDbWithTopology(app,
+		1,      // clusters
+		3,      // nodes_per_cluster
+		1,      // devices_per_node,
+		500*GB, // disksize)
+	)
+	tests.Assert(t, err == nil)
+	req := &api.VolumeCreateRequest{}
+	req.Size = 1024
+	req.GlusterVolumeOptions = []string{"test-option"}
+
+	v := NewVolumeEntryFromRequest(req)
+	tests.Assert(t, v.Info.Name == "vol_"+v.Info.Id)
+	tests.Assert(t, v.Info.Snapshot.Enable == false)
+	tests.Assert(t, v.Info.Snapshot.Factor == 1)
+	tests.Assert(t, v.Info.Size == 1024)
+	tests.Assert(t, len(v.Info.Id) != 0)
+	tests.Assert(t, len(v.Bricks) == 0)
+	tests.Assert(t, v.GlusterVolumeOptions[0] == "test-option")
+
+	err = v.Create(app.db, app.executor, app.allocator)
+	logger.Info("%v", v.Info.Cluster)
+	tests.Assert(t, err == nil, err)
+
+	// Check that the data on the database is recorded correctly
+	var entry VolumeEntry
+	err = app.db.View(func(tx *bolt.Tx) error {
+		return entry.Unmarshal(
+			tx.Bucket([]byte(BOLTDB_BUCKET_VOLUME)).
+				Get([]byte(v.Info.Id)))
+	})
+	tests.Assert(t, err == nil)
+	tests.Assert(t, entry.GlusterVolumeOptions[0] == "test-option")
+
 }

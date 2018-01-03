@@ -7,14 +7,13 @@ import (
 	"strings"
 	"testing"
 
+	kapps "k8s.io/api/apps/v1beta1"
+	kapiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/client-go/util/jsonpath"
-	kapi "k8s.io/kubernetes/pkg/api"
-	kapihelper "k8s.io/kubernetes/pkg/api/helper"
-	kapiv1 "k8s.io/kubernetes/pkg/api/v1"
-	kapps "k8s.io/kubernetes/pkg/apis/apps/v1beta1"
+	kapihelper "k8s.io/kubernetes/pkg/apis/core/helper"
 
 	triggerapi "github.com/openshift/origin/pkg/image/apis/image/v1/trigger"
 )
@@ -283,12 +282,9 @@ func TestAnnotationsReactor(t *testing.T) {
 
 	for i, test := range testCases {
 		u := &fakeUpdater{}
-		r := AnnotationReactor{Copier: kapi.Scheme, Updater: u}
-		initial, err := kapi.Scheme.DeepCopy(test.obj)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = r.ImageChanged(test.obj, fakeTagRetriever(test.tags))
+		r := AnnotationReactor{Updater: u}
+		initial := test.obj.DeepCopy()
+		err := r.ImageChanged(test.obj, fakeTagRetriever(test.tags))
 		if !kapihelper.Semantic.DeepEqual(initial, test.obj) {
 			t.Errorf("%d: should not have mutated: %s", i, diff.ObjectReflectDiff(initial, test.obj))
 		}

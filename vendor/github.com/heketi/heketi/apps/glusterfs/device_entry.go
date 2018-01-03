@@ -159,10 +159,6 @@ func (d *DeviceEntry) ConflictString() string {
 	return fmt.Sprintf("Unable to delete device [%v] because it contains bricks", d.Info.Id)
 }
 
-func (d *DeviceEntry) NoReplacementDeviceString() string {
-	return fmt.Sprintf("Unable to delete device [%v] as no device was found to replace it", d.Info.Id)
-}
-
 func (d *DeviceEntry) Delete(tx *bolt.Tx) error {
 	godbc.Require(tx != nil)
 
@@ -207,53 +203,92 @@ func (d *DeviceEntry) addDeviceToRing(tx *bolt.Tx,
 	return a.AddDevice(cluster, node, d)
 }
 
-func (d *DeviceEntry) SetState(tx *bolt.Tx,
+func (d *DeviceEntry) SetState(db *bolt.DB,
+	e executors.Executor,
 	a Allocator,
 	s api.EntryState) error {
 
 	// Check current state
 	switch d.State {
-	case api.EntryStateFailed:
-		if s == api.EntryStateFailed {
-			return nil
-		}
-		return fmt.Errorf("Cannot reuse a failed device")
 
-	case api.EntryStateOnline:
+	// Device is in removed/failed state
+	case api.EntryStateFailed:
 		switch s {
-		case api.EntryStateOnline:
-			return nil
 		case api.EntryStateFailed:
+			return nil
+		case api.EntryStateOnline:
+			return fmt.Errorf("Cannot move a failed/removed device to online state")
 		case api.EntryStateOffline:
+			return fmt.Errorf("Cannot move a failed/removed device to offline state")
 		default:
 			return fmt.Errorf("Unknown state type: %v", s)
 		}
 
-		// Remove disk from Ring
-		err := d.removeDeviceFromRing(tx, a)
-		if err != nil {
-			return err
+	// Device is in enabled/online state
+	case api.EntryStateOnline:
+		switch s {
+		case api.EntryStateOnline:
+			return nil
+		case api.EntryStateOffline:
+			// Remove disk from Ring
+			err := db.Update(func(tx *bolt.Tx) error {
+				err := d.removeDeviceFromRing(tx, a)
+				if err != nil {
+					return err
+				}
+
+				// Save state
+				d.State = s
+				// Save new state
+				err = d.Save(tx)
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		case api.EntryStateFailed:
+			return fmt.Errorf("Device must be offline before remove operation is performed, device:%v", d.Id())
+		default:
+			return fmt.Errorf("Unknown state type: %v", s)
 		}
 
-		// Save state
-		d.State = s
-
+	// Device is in disabled/offline state
 	case api.EntryStateOffline:
 		switch s {
 		case api.EntryStateOffline:
 			return nil
 		case api.EntryStateOnline:
 			// Add disk back
-			err := d.addDeviceToRing(tx, a)
+			err := db.Update(func(tx *bolt.Tx) error {
+				err := d.addDeviceToRing(tx, a)
+				if err != nil {
+					return err
+				}
+				d.State = s
+				err = d.Save(tx)
+				if err != nil {
+					return err
+				}
+				return nil
+			})
 			if err != nil {
 				return err
 			}
 		case api.EntryStateFailed:
-			// Only thing to do here is to set the state
+
+			err := d.Remove(db, e, a)
+			if err != nil {
+				if err == ErrNoReplacement {
+					return logger.LogError("Unable to delete device [%v] as no device was found to replace it", d.Id())
+				}
+				return err
+			}
 		default:
 			return fmt.Errorf("Unknown state type: %v", s)
 		}
-		d.State = s
 	}
 
 	return nil
@@ -377,7 +412,6 @@ func (d *DeviceEntry) NewBrickEntry(amount uint64, snapFactor float64, gid int64
 		d.Id(),
 		d.Info.Storage.Free, total)
 	if !d.StorageCheck(total) {
-		logger.Info("Failed Storage Check")
 		return nil
 	}
 
@@ -400,45 +434,73 @@ func (d *DeviceEntry) poolMetadataSize(tpsize uint64) uint64 {
 	return p
 }
 
-// Removes all the bricks from the Device
+// Moves all the bricks from the device to one or more other devices
 func (d *DeviceEntry) Remove(db *bolt.DB,
 	executor executors.Executor,
 	allocator Allocator) (e error) {
-	type brickToReplace struct {
-		brickId  string
-		volumeId *VolumeEntry
+
+	// If the device has no bricks, just change the state and we are done
+	if d.IsDeleteOk() {
+		d.State = api.EntryStateFailed
+		// Save new state
+		err := db.Update(func(tx *bolt.Tx) error {
+			err := d.Save(tx)
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
 	}
-	var bricksToReplace []brickToReplace
-	err := db.View(func(tx *bolt.Tx) error {
-		for _, bricks := range d.Bricks {
-			brickEntry, err := NewBrickEntryFromId(tx, bricks)
+
+	for _, brickId := range d.Bricks {
+		var brickEntry *BrickEntry
+		var volumeEntry *VolumeEntry
+		err := db.View(func(tx *bolt.Tx) error {
+			var err error
+			brickEntry, err = NewBrickEntryFromId(tx, brickId)
 			if err != nil {
-				return nil
+				return err
 			}
-			volumeEntry, err := NewVolumeEntryFromId(tx, brickEntry.Info.VolumeId)
+			volumeEntry, err = NewVolumeEntryFromId(tx, brickEntry.Info.VolumeId)
 			if err != nil {
-				return nil
+				return err
 			}
-			brick := brickToReplace{}
-			brick.brickId = bricks
-			brick.volumeId = volumeEntry
-			bricksToReplace = append(bricksToReplace, brick)
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		logger.Info("Replacing brick %v on device %v on node %v", brickEntry.Id(), d.Id(), d.NodeId)
+		err = volumeEntry.replaceBrickInVolume(db, executor, allocator, brickEntry.Id())
+		if err != nil {
+			return logger.Err(fmt.Errorf("Failed to remove device, error: %v", err))
+		}
+	}
+
+	// Set device state to failed
+	// Get new entry for the device because db would have changed
+	// replaceBrickInVolume calls functions that change device state in db
+	err := db.Update(func(tx *bolt.Tx) error {
+		newDeviceEntry, err := NewDeviceEntryFromId(tx, d.Id())
+		if err != nil {
+			return err
+		}
+		newDeviceEntry.State = api.EntryStateFailed
+		err = newDeviceEntry.Save(tx)
+		if err != nil {
+			return err
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+	return nil
+}
 
-	for _, brick := range bricksToReplace {
-		logger.Info("replace the brick %v", brick.brickId)
-		volentry := brick.volumeId
-		err = volentry.replaceBrickInVolume(db, executor, allocator, brick.brickId)
-		if err != nil {
-			logger.Info("Error replace brick")
-			return err
-		}
-		logger.Info("Replace brick success")
-	}
+func DeviceEntryUpgrade(tx *bolt.Tx) error {
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	clientv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -14,9 +15,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	apiserverserviceaccount "k8s.io/apiserver/pkg/authentication/serviceaccount"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	clientv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/record"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kcoreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
 	"k8s.io/kubernetes/pkg/serviceaccount"
 
@@ -200,7 +201,7 @@ func NewServiceAccountOAuthClientGetter(
 ) oauthclient.Getter {
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartRecordingToSink(&corev1.EventSinkImpl{Interface: eventClient})
-	recorder := eventBroadcaster.NewRecorder(kapi.Scheme, clientv1.EventSource{Component: "service-account-oauth-client-getter"})
+	recorder := eventBroadcaster.NewRecorder(legacyscheme.Scheme, clientv1.EventSource{Component: "service-account-oauth-client-getter"})
 	return &saOAuthClientAdapter{
 		saClient:      saClient,
 		secretClient:  secretClient,
@@ -208,7 +209,7 @@ func NewServiceAccountOAuthClientGetter(
 		routeClient:   routeClient,
 		delegate:      delegate,
 		grantMethod:   grantMethod,
-		decoder:       kapi.Codecs.UniversalDecoder(),
+		decoder:       legacyscheme.Codecs.UniversalDecoder(),
 	}
 }
 

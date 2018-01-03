@@ -16,7 +16,7 @@ import (
 	utilwait "k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	kcache "k8s.io/client-go/tools/cache"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 
@@ -26,6 +26,10 @@ import (
 	"github.com/openshift/origin/pkg/router"
 	routercontroller "github.com/openshift/origin/pkg/router/controller"
 	informerfactory "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
+)
+
+const (
+	DefaultResyncInterval = 30 * time.Minute
 )
 
 // RouterControllerFactory initializes and manages the watches that drive a router
@@ -52,7 +56,7 @@ func NewDefaultRouterControllerFactory(rc routeclientset.Interface, pc projectcl
 		KClient:        kc,
 		RClient:        rc,
 		ProjectClient:  pc,
-		ResyncInterval: 10 * time.Minute,
+		ResyncInterval: DefaultResyncInterval,
 
 		Namespace: v1.NamespaceAll,
 		informers: map[reflect.Type]kcache.SharedIndexInformer{},
@@ -73,13 +77,18 @@ func (f *RouterControllerFactory) Create(plugin router.Plugin, watchNodes, enabl
 		NamespaceRoutes:        make(map[string]map[string]*routeapi.Route),
 		NamespaceEndpoints:     make(map[string]map[string]*kapi.Endpoints),
 
-		ProjectClient: f.ProjectClient,
-		ProjectLabels: f.ProjectLabels,
-		// Check projects a bit more often than we resync events, so that we aren't always waiting
-		// the maximum interval for new items to come into the list
-		ProjectSyncInterval: f.ResyncInterval - 10*time.Second,
+		ProjectClient:       f.ProjectClient,
+		ProjectLabels:       f.ProjectLabels,
 		ProjectWaitInterval: 10 * time.Second,
 		ProjectRetries:      5,
+	}
+
+	// Check projects a bit more often than we resync events, so that we aren't always waiting
+	// the maximum interval for new items to come into the list
+	if f.ResyncInterval > 10*time.Second {
+		rc.ProjectSyncInterval = f.ResyncInterval - 10*time.Second
+	} else {
+		rc.ProjectSyncInterval = f.ResyncInterval
 	}
 
 	f.initInformers(rc)

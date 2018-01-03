@@ -17,7 +17,9 @@ import (
 )
 
 const (
+	// Name of the driver
 	Name = "coprhd"
+	// Type of the driver
 	Type = api.DriverType_DRIVER_TYPE_BLOCK
 
 	// LoginUri path to create a authentication token
@@ -58,15 +60,17 @@ type CreateVolumeReply struct {
 type driver struct {
 	volume.IODriver
 	volume.StoreEnumerator
-	consistency_group string
-	project           string
-	varray            string
-	vpool             string
-	url               string
-	httpClient        *http.Client
-	creds             *url.Userinfo
+	volume.StatsDriver
+	consistencyGroup string
+	project          string
+	varray           string
+	vpool            string
+	url              string
+	httpClient       *http.Client
+	creds            *url.Userinfo
 }
 
+// Init initializes the driver
 func Init(params map[string]string) (volume.VolumeDriver, error) {
 	restUrl, ok := params["restUrl"]
 	if !ok {
@@ -83,7 +87,7 @@ func Init(params map[string]string) (volume.VolumeDriver, error) {
 		return nil, fmt.Errorf("rest auth 'password' must be set")
 	}
 
-	consistency_group, ok := params["consistency_group"]
+	consistencyGroup, ok := params["consistency_group"]
 	if !ok {
 		return nil, fmt.Errorf("'consistency_group' configuration parameter must be set")
 	}
@@ -104,14 +108,15 @@ func Init(params map[string]string) (volume.VolumeDriver, error) {
 	}
 
 	d := &driver{
-		IODriver:          volume.IONotSupported,
-		StoreEnumerator:   common.NewDefaultStoreEnumerator(Name, kvdb.Instance()),
-		consistency_group: consistency_group,
-		project:           project,
-		varray:            varray,
-		vpool:             vpool,
-		url:               restUrl,
-		creds:             url.UserPassword(user, pass),
+		IODriver:         volume.IONotSupported,
+		StoreEnumerator:  common.NewDefaultStoreEnumerator(Name, kvdb.Instance()),
+		StatsDriver:      volume.StatsNotSupported,
+		consistencyGroup: consistencyGroup,
+		project:          project,
+		varray:           varray,
+		vpool:            vpool,
+		url:              restUrl,
+		creds:            url.UserPassword(user, pass),
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -150,7 +155,7 @@ func (d *driver) Create(
 	sz := int64(spec.Size / (1024 * 1024 * 1000))
 
 	payload := CreateVolumeArgs{
-		d.consistency_group,       // ConsistencyGroup
+		d.consistencyGroup,        // ConsistencyGroup
 		1,                         // Count
 		locator.Name,              // Name
 		d.project,                 // Project
@@ -175,15 +180,7 @@ func (d *driver) Delete(volumeID string) error {
 	return nil
 }
 
-func (d *driver) Stats(volumeID string, cumulative bool) (*api.Stats, error) {
-	return nil, volume.ErrNotSupported
-}
-
-func (d *driver) Alerts(volumeID string) (*api.Alerts, error) {
-	return nil, volume.ErrNotSupported
-}
-
-func (d *driver) Attach(volumeID string) (path string, err error) {
+func (d *driver) Attach(volumeID string, attachOptions map[string]string) (path string, err error) {
 	return "", nil
 }
 
@@ -191,7 +188,7 @@ func (d *driver) MountedAt(mountpath string) string {
 	return ""
 }
 
-func (d *driver) Detach(volumeID string) error {
+func (d *driver) Detach(volumeID string, unmountBeforeDetach bool) error {
 	return nil
 }
 
@@ -222,7 +219,11 @@ func (d *driver) Snapshot(
 	return "", nil
 }
 
-func (v *driver) Status() [][2]string {
+func (d *driver) Restore(volumeID string, snapID string) error {
+	return volume.ErrNotSupported
+}
+
+func (d *driver) Status() [][2]string {
 	return [][2]string{}
 }
 
@@ -255,8 +256,4 @@ func (d *driver) getAuthSession() (session *napping.Session, err error) {
 	}
 
 	return
-}
-
-func (d *driver) GetActiveRequests() (*api.ActiveRequests, error) {
-	return nil, nil
 }

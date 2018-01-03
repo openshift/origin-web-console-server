@@ -15,8 +15,8 @@ import (
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/authorization/registry/util"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/openshift/origin/pkg/oc/admin/migrate"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 
 	"github.com/spf13/cobra"
 )
@@ -73,6 +73,8 @@ func NewCmdMigrateAuthorization(name, fullName string, f *clientcmd.Factory, in 
 		},
 		Deprecated: fmt.Sprintf("will not work against 3.7 servers"),
 	}
+	options.ResourceOptions.Bind(cmd)
+
 	return cmd
 }
 

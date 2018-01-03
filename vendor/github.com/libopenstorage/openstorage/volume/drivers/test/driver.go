@@ -32,17 +32,19 @@ func init() {
 // so that tests can build on other tests' work
 type Context struct {
 	volume.VolumeDriver
-	volID      string
-	snapID     string
-	mountPath  string
-	devicePath string
-	Filesystem api.FSType
-	testPath   string
-	testFile   string
-	Encrypted  bool
-	Passphrase string
+	volID         string
+	snapID        string
+	mountPath     string
+	devicePath    string
+	Filesystem    api.FSType
+	testPath      string
+	testFile      string
+	Encrypted     bool
+	Passphrase    string
+	AttachOptions map[string]string
 }
 
+// NewContext returns a new Context
 func NewContext(d volume.VolumeDriver) *Context {
 	return &Context{
 		VolumeDriver: d,
@@ -54,6 +56,7 @@ func NewContext(d volume.VolumeDriver) *Context {
 	}
 }
 
+// RunShort runs the short test suite
 func RunShort(t *testing.T, ctx *Context) {
 	create(t, ctx)
 	inspect(t, ctx)
@@ -68,6 +71,7 @@ func RunShort(t *testing.T, ctx *Context) {
 	runEnd(t, ctx)
 }
 
+// Run runs the complete test suite
 func Run(t *testing.T, ctx *Context) {
 	RunShort(t, ctx)
 	RunSnap(t, ctx)
@@ -81,6 +85,7 @@ func runEnd(t *testing.T, ctx *Context) {
 	shutdown(t, ctx)
 }
 
+// RunSnap runs only the snap related tests
 func RunSnap(t *testing.T, ctx *Context) {
 	snap(t, ctx)
 	snapInspect(t, ctx)
@@ -133,14 +138,15 @@ func set(t *testing.T, ctx *Context) {
 
 	vols[0].Locator.VolumeLabels["UpdateTest"] = "Success"
 	err = ctx.Set(ctx.volID, vols[0].Locator, nil)
-	require.NoError(t, err, "Failed in Update")
-
-	vols, err = ctx.Inspect([]string{ctx.volID})
-	require.NoError(t, err, "Failed in Inspect")
-	require.NotNil(t, vols, "Nil vols")
-	require.Equal(t, len(vols), 1, "Expect 1 volume actual %v volumes", len(vols))
-	require.Equal(t, vols[0].Locator.VolumeLabels["UpdateTest"], "Success",
-		"Expect Label %v actual %v", "UpdateTest", vols[0].Locator.VolumeLabels)
+	if err != volume.ErrNotSupported {
+		require.NoError(t, err, "Failed in Update")
+		vols, err = ctx.Inspect([]string{ctx.volID})
+		require.NoError(t, err, "Failed in Inspect")
+		require.NotNil(t, vols, "Nil vols")
+		require.Equal(t, len(vols), 1, "Expect 1 volume actual %v volumes", len(vols))
+		require.Equal(t, vols[0].Locator.VolumeLabels["UpdateTest"], "Success",
+			"Expect Label %v actual %v", "UpdateTest", vols[0].Locator.VolumeLabels)
+	}
 }
 
 func enumerate(t *testing.T, ctx *Context) {
@@ -188,13 +194,13 @@ func attach(t *testing.T, ctx *Context) {
 	fmt.Println("attach")
 	err := waitReady(t, ctx)
 	require.NoError(t, err, "Volume status is not up")
-	p, err := ctx.Attach(ctx.volID)
+	p, err := ctx.Attach(ctx.volID, ctx.AttachOptions)
 	if err != nil {
 		require.Equal(t, err, volume.ErrNotSupported, "Error on attach %v", err)
 	}
 	ctx.devicePath = p
 
-	p, err = ctx.Attach(ctx.volID)
+	p, err = ctx.Attach(ctx.volID, ctx.AttachOptions)
 	if err == nil {
 		require.Equal(t, p, ctx.devicePath, "Multiple calls to attach if not errored should return the same path")
 	}
@@ -202,7 +208,7 @@ func attach(t *testing.T, ctx *Context) {
 
 func detach(t *testing.T, ctx *Context) {
 	fmt.Println("detach")
-	err := ctx.Detach(ctx.volID)
+	err := ctx.Detach(ctx.volID, false)
 	if err != nil {
 		require.Equal(t, ctx.devicePath, "", "Error on detach %s: %v", ctx.devicePath, err)
 	}
@@ -275,7 +281,7 @@ func io(t *testing.T, ctx *Context) {
 }
 
 func detachBad(t *testing.T, ctx *Context) {
-	err := ctx.Detach(ctx.volID)
+	err := ctx.Detach(ctx.volID, false)
 	require.True(t, (err == nil || err == volume.ErrNotSupported),
 		"Detach on mounted device should fail")
 }

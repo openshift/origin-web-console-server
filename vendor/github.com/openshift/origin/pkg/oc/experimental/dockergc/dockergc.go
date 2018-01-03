@@ -19,8 +19,8 @@ import (
 	dockerapi "github.com/docker/engine-api/client"
 	dockertypes "github.com/docker/engine-api/types"
 	dockerfilters "github.com/docker/engine-api/types/filters"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	configcmd "github.com/openshift/origin/pkg/config/cmd"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -56,8 +56,10 @@ var (
 		If the OpenShift node is configured to use a container runtime other than docker,
 		docker will still be used to do builds.  However OpenShift itself may not
 		manage the docker storage since it is not the container runtime for pods.
-		
-		This utility allows garbage collection to do be done on the docker storage.`)
+
+		This utility allows garbage collection to do be done on the docker storage.
+
+		Only the overlay2 docker storage driver is supported at this time.`)
 
 	dockerGC_example = templates.Examples(`
 	  # Perform garbage collection with the default settings
@@ -251,6 +253,9 @@ func Run(f *clientcmd.Factory, options *dockerGCConfigCmdOptions, cmd *cobra.Com
 	info, err := client.Info(ctx)
 	if err != nil {
 		return err
+	}
+	if info.Driver != "overlay2" {
+		return fmt.Errorf("%s storage driver is not supported", info.Driver)
 	}
 	rootDir := info.DockerRootDir
 	if rootDir == "" {

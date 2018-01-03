@@ -9,15 +9,16 @@ import (
 
 	"github.com/golang/glog"
 
+	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	kv1core "k8s.io/client-go/kubernetes/typed/core/v1"
-	kapi "k8s.io/client-go/pkg/api"
-	"k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/controller"
 
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
@@ -155,7 +156,7 @@ func NewTriggerEventBroadcaster(client kv1core.CoreV1Interface) record.EventBroa
 func NewTriggerController(eventBroadcaster record.EventBroadcaster, isInformer imageinformer.ImageStreamInformer, sources ...TriggerSource) *TriggerController {
 	lister := isInformer.Lister()
 	c := &TriggerController{
-		eventRecorder:    eventBroadcaster.NewRecorder(kapi.Scheme, v1.EventSource{Component: "image-trigger-controller"}),
+		eventRecorder:    eventBroadcaster.NewRecorder(legacyscheme.Scheme, v1.EventSource{Component: "image-trigger-controller"}),
 		queue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "image-trigger"),
 		imageChangeQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "image-trigger-reactions"),
 		lister:           lister,
@@ -373,5 +374,5 @@ func (c *TriggerController) syncResource(key string) error {
 		return nil
 	}
 
-	return source.Reactor.ImageChanged(obj, c.tagRetriever)
+	return source.Reactor.ImageChanged(obj.(runtime.Object), c.tagRetriever)
 }

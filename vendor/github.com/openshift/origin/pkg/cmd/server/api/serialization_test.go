@@ -16,8 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/diff"
-	kapi "k8s.io/kubernetes/pkg/api"
-	kapihelper "k8s.io/kubernetes/pkg/api/helper"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
+	kapihelper "k8s.io/kubernetes/pkg/apis/core/helper"
 
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	configapiv1 "github.com/openshift/origin/pkg/cmd/server/api/v1"
@@ -43,6 +43,14 @@ func fuzzInternalObject(t *testing.T, forVersion schema.GroupVersion, item runti
 			}
 			if len(obj.Controllers) == 0 {
 				obj.Controllers = configapi.ControllersAll
+			}
+			if len(obj.ControllerConfig.Controllers) == 0 {
+				switch {
+				case obj.Controllers == configapi.ControllersAll:
+					obj.ControllerConfig.Controllers = []string{"*"}
+				case obj.Controllers == configapi.ControllersDisabled:
+					obj.ControllerConfig.Controllers = []string{}
+				}
 			}
 			if election := obj.ControllerConfig.Election; election != nil {
 				if len(election.LockNamespace) == 0 {
@@ -400,12 +408,7 @@ func fuzzInternalObject(t *testing.T, forVersion schema.GroupVersion, item runti
 func roundTrip(t *testing.T, codec runtime.Codec, originalItem runtime.Object) {
 	// Make a copy of the originalItem to give to conversion functions
 	// This lets us know if conversion messed with the input object
-	deepCopy, err := configapi.Scheme.DeepCopy(originalItem)
-	if err != nil {
-		t.Errorf("Could not copy object: %v", err)
-		return
-	}
-	item := deepCopy.(runtime.Object)
+	item := originalItem.DeepCopyObject()
 
 	name := reflect.TypeOf(item).Elem().Name()
 	data, err := runtime.Encode(codec, item)

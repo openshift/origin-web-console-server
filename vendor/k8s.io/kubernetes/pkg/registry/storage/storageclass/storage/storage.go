@@ -21,7 +21,6 @@ import (
 	"k8s.io/apiserver/pkg/registry/generic"
 	genericregistry "k8s.io/apiserver/pkg/registry/generic/registry"
 	"k8s.io/apiserver/pkg/registry/rest"
-	"k8s.io/kubernetes/pkg/api"
 	storageapi "k8s.io/kubernetes/pkg/apis/storage"
 	"k8s.io/kubernetes/pkg/registry/storage/storageclass"
 )
@@ -33,10 +32,8 @@ type REST struct {
 // NewREST returns a RESTStorage object that will work against persistent volumes.
 func NewREST(optsGetter generic.RESTOptionsGetter) *REST {
 	store := &genericregistry.Store{
-		Copier:                   api.Scheme,
 		NewFunc:                  func() runtime.Object { return &storageapi.StorageClass{} },
 		NewListFunc:              func() runtime.Object { return &storageapi.StorageClassList{} },
-		PredicateFunc:            storageclass.MatchStorageClasses,
 		DefaultQualifiedResource: storageapi.Resource("storageclasses"),
 
 		CreateStrategy:      storageclass.Strategy,
@@ -44,7 +41,7 @@ func NewREST(optsGetter generic.RESTOptionsGetter) *REST {
 		DeleteStrategy:      storageclass.Strategy,
 		ReturnDeletedObject: true,
 	}
-	options := &generic.StoreOptions{RESTOptions: optsGetter, AttrFunc: storageclass.GetAttrs}
+	options := &generic.StoreOptions{RESTOptions: optsGetter}
 	if err := store.CompleteWithOptions(options); err != nil {
 		panic(err) // TODO: Propagate error up
 	}

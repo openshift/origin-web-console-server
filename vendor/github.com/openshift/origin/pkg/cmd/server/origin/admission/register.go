@@ -8,7 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/admission"
 	genericapiserver "k8s.io/apiserver/pkg/server"
-	kubeapiserver "k8s.io/kubernetes/cmd/kube-apiserver/app"
+	kubeapiserver "k8s.io/kubernetes/cmd/kube-apiserver/app/options"
 
 	// Admission control plug-ins used by OpenShift
 	authorizationrestrictusers "github.com/openshift/origin/pkg/authorization/admission/restrictusers"
@@ -39,7 +39,7 @@ import (
 )
 
 // TODO register this per apiserver or at least per process
-var OriginAdmissionPlugins = &admission.Plugins{}
+var OriginAdmissionPlugins = admission.NewPlugins()
 
 func init() {
 	RegisterAllAdmissionPlugins(OriginAdmissionPlugins)
@@ -112,8 +112,11 @@ var (
 
 		// these are new, reassess post-rebase
 		"Initializers",
-		"GenericAdmissionWebhook",
+		"ValidatingAdmissionWebhook",
+		"MutatingAdmissionWebhook",
 		"PodTolerationRestriction",
+		"ExtendedResourceToleration",
+		"PVCProtection",
 	)
 )
 

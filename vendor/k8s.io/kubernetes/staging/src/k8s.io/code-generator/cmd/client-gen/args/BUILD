@@ -1,15 +1,45 @@
 package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"])
-
 load(
     "@io_bazel_rules_go//go:def.bzl",
     "go_library",
+    "go_test",
 )
 
 go_library(
     name = "go_default_library",
-    srcs = ["args.go"],
+    srcs = [
+        "args.go",
+        "gvpackages.go",
+        "gvtype.go",
+    ],
+    importpath = "k8s.io/code-generator/cmd/client-gen/args",
+    deps = [
+        "//vendor/github.com/spf13/pflag:go_default_library",
+        "//vendor/k8s.io/code-generator/cmd/client-gen/types:go_default_library",
+    ],
+)
+
+filegroup(
+    name = "package-srcs",
+    srcs = glob(["**"]),
     tags = ["automanaged"],
-    deps = ["//vendor/k8s.io/code-generator/cmd/client-gen/types:go_default_library"],
+    visibility = ["//visibility:private"],
+)
+
+filegroup(
+    name = "all-srcs",
+    srcs = [":package-srcs"],
+    tags = ["automanaged"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["gvpackages_test.go"],
+    importpath = "k8s.io/code-generator/cmd/client-gen/args",
+    library = ":go_default_library",
+    deps = [
+        "//vendor/github.com/spf13/pflag:go_default_library",
+        "//vendor/k8s.io/code-generator/cmd/client-gen/types:go_default_library",
+    ],
 )

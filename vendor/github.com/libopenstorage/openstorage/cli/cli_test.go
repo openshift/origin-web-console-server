@@ -22,6 +22,7 @@ func TestCmdMarshalProto(t *testing.T) {
  "block_size": "0",
  "ha_level": "0",
  "cos": "none",
+ "io_profile": "sequential",
  "dedupe": false,
  "snapshot_interval": 0,
  "shared": false,
@@ -29,7 +30,10 @@ func TestCmdMarshalProto(t *testing.T) {
  "encrypted": false,
  "passphrase": "",
  "snapshot_schedule": "",
- "scale": 0
+ "scale": 0,
+ "sticky": false,
+ "group_enforced": false,
+ "compressed": false
 }`,
 		data,
 	)

@@ -18,7 +18,7 @@ import (
 )
 
 func (s *SshExecutor) VolumeCreate(host string,
-	volume *executors.VolumeRequest) (*executors.SingleVolumeInfo, error) {
+	volume *executors.VolumeRequest) (*executors.Volume, error) {
 
 	godbc.Require(volume != nil)
 	godbc.Require(host != "")
@@ -62,6 +62,8 @@ func (s *SshExecutor) VolumeCreate(host string,
 
 	commands = append(commands, s.createAddBrickCommands(volume, inSet, inSet, maxPerSet)...)
 
+	commands = append(commands, s.createVolumeOptionsCommand(volume)...)
+
 	commands = append(commands, fmt.Sprintf("gluster --mode=script volume start %v", volume.Name))
 
 	_, err := s.RemoteExecutor.RemoteCommandExecute(host, commands, 10)
@@ -70,11 +72,11 @@ func (s *SshExecutor) VolumeCreate(host string,
 		return nil, err
 	}
 
-	return &executors.SingleVolumeInfo{}, nil
+	return &executors.Volume{}, nil
 }
 
 func (s *SshExecutor) VolumeExpand(host string,
-	volume *executors.VolumeRequest) (*executors.SingleVolumeInfo, error) {
+	volume *executors.VolumeRequest) (*executors.Volume, error) {
 
 	godbc.Require(volume != nil)
 	godbc.Require(host != "")
@@ -112,7 +114,7 @@ func (s *SshExecutor) VolumeExpand(host string,
 		return nil, err
 	}
 
-	return &executors.SingleVolumeInfo{}, nil
+	return &executors.Volume{}, nil
 }
 
 func (s *SshExecutor) VolumeDestroy(host string, volume string) error {
@@ -153,6 +155,23 @@ func (s *SshExecutor) VolumeDestroyCheck(host, volume string) error {
 	}
 
 	return nil
+}
+
+func (s *SshExecutor) createVolumeOptionsCommand(volume *executors.VolumeRequest) []string {
+	godbc.Require(len(volume.GlusterVolumeOptions) > 0)
+
+	commands := []string{}
+	var cmd string
+
+	// Go through all the Options and create volume set command
+	for _, volOption := range volume.GlusterVolumeOptions {
+		if volOption != "" {
+			cmd = fmt.Sprintf("gluster --mode=script volume set %v %v", volume.Name, volOption)
+			commands = append(commands, cmd)
+		}
+
+	}
+	return commands
 }
 
 func (s *SshExecutor) createAddBrickCommands(volume *executors.VolumeRequest,
@@ -215,7 +234,7 @@ func (s *SshExecutor) checkForSnapshots(host, volume string) error {
 	return nil
 }
 
-func (s *SshExecutor) VolumeInfo(host string, volume string) (*executors.SingleVolumeInfo, error) {
+func (s *SshExecutor) VolumeInfo(host string, volume string) (*executors.Volume, error) {
 
 	godbc.Require(volume != "")
 	godbc.Require(host != "")
@@ -242,7 +261,7 @@ func (s *SshExecutor) VolumeInfo(host string, volume string) (*executors.SingleV
 		return nil, fmt.Errorf("Unable to determine volume info of volume name: %v", volume)
 	}
 	logger.Debug("%+v\n", volumeInfo)
-	return &volumeInfo.VolInfo.Volumes.Volumes[0], nil
+	return &volumeInfo.VolInfo.Volumes.VolumeList[0], nil
 }
 
 func (s *SshExecutor) VolumeReplaceBrick(host string, volume string, oldBrick *executors.BrickInfo, newBrick *executors.BrickInfo) error {
@@ -251,60 +270,11 @@ func (s *SshExecutor) VolumeReplaceBrick(host string, volume string, oldBrick *e
 	godbc.Require(oldBrick != nil)
 	godbc.Require(newBrick != nil)
 
-	type CliOutput struct {
-		VolStatus struct {
-			Volumes struct {
-				Volume struct {
-					VolumeName string `xml:"volName"`
-					NodeCount  int    `xml:"nodeCount"`
-					Node       struct {
-						HostName string `xml:"hostname"`
-						Path     string `xml:"path"`
-						PeerId   string `xml:"peerid"`
-						Status   int    `xml:"status"`
-						Port     string `xml:"port"`
-						Ports    struct {
-							TCP  string `xml:"tcp"`
-							RDMA string `xml:"rdma"`
-						} `xml:"ports"`
-						Pid string `xml:"pid"`
-					} `xml:"node"`
-				} `xml:"volume"`
-			} `xml:"volumes"`
-		} `xml:"volStatus"`
-	}
-
-	command := []string{
-		fmt.Sprintf("gluster --mode=script volume status %v %v:%v --xml", volume, oldBrick.Host, oldBrick.Path),
-	}
-
-	//Get the xml output of status of brick
-	output, err := s.RemoteExecutor.RemoteCommandExecute(host, command, 10)
-	if err != nil {
-		return fmt.Errorf("Unable to get volume status of volume name: %v and brick: %v:%v", volume, oldBrick.Host, oldBrick.Path)
-	}
-	var volumeBrickInfo CliOutput
-	err = xml.Unmarshal([]byte(output[0]), &volumeBrickInfo)
-	if err != nil {
-		return fmt.Errorf("Unable to determine volume status of volume name: %v and brick: %v:%v", volume, oldBrick.Host, oldBrick.Path)
-	}
-
-	//Kill the brick process if it is running as it is a requirement of replace brick
-	if volumeBrickInfo.VolStatus.Volumes.Volume.Node.Pid != "N/A" {
-		command = []string{
-			fmt.Sprintf("kill -9 %v", volumeBrickInfo.VolStatus.Volumes.Volume.Node.Pid),
-		}
-		_, err := s.RemoteExecutor.RemoteCommandExecute(host, command, 10)
-		if err != nil {
-			return fmt.Errorf("Unable to kill brick process %v:%v", oldBrick.Host, oldBrick.Path)
-		}
-	}
-
 	// Replace the brick
-	command = []string{
+	command := []string{
 		fmt.Sprintf("gluster --mode=script volume replace-brick %v %v:%v %v:%v commit force", volume, oldBrick.Host, oldBrick.Path, newBrick.Host, newBrick.Path),
 	}
-	_, err = s.RemoteExecutor.RemoteCommandExecute(host, command, 10)
+	_, err := s.RemoteExecutor.RemoteCommandExecute(host, command, 10)
 	if err != nil {
 		return logger.Err(fmt.Errorf("Unable to replace brick %v:%v with %v:%v for volume %v", oldBrick.Host, oldBrick.Path, newBrick.Host, newBrick.Path, volume))
 	}

@@ -8,13 +8,13 @@ import (
 	g "github.com/onsi/ginkgo"
 	o "github.com/onsi/gomega"
 
+	"k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
 	templateapi "github.com/openshift/origin/pkg/template/apis/template"
 	exutil "github.com/openshift/origin/test/extended/util"
@@ -62,20 +62,20 @@ var _ = g.Describe("[Conformance][templates] templateinstance readiness test", f
 			return true, nil
 
 		case buildapi.BuildPhaseComplete:
-			var progressing, available *deployapi.DeploymentCondition
+			var progressing, available *appsapi.DeploymentCondition
 			for i, condition := range dc.Status.Conditions {
 				switch condition.Type {
-				case deployapi.DeploymentProgressing:
+				case appsapi.DeploymentProgressing:
 					progressing = &dc.Status.Conditions[i]
 
-				case deployapi.DeploymentAvailable:
+				case appsapi.DeploymentAvailable:
 					available = &dc.Status.Conditions[i]
 				}
 			}
 
 			if (progressing != nil &&
 				progressing.Status == kapi.ConditionTrue &&
-				progressing.Reason == deployapi.NewRcAvailableReason &&
+				progressing.Reason == appsapi.NewRcAvailableReason &&
 				available != nil &&
 				available.Status == kapi.ConditionTrue) ||
 				(progressing != nil &&

@@ -11,13 +11,17 @@ import (
 	"k8s.io/apiserver/pkg/admission"
 	"k8s.io/apiserver/pkg/authentication/user"
 	clientgotesting "k8s.io/client-go/testing"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/apis/authorization"
 	fakekubeclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 	kubeadmission "k8s.io/kubernetes/pkg/kubeapiserver/admission"
 
+	buildapiv1 "github.com/openshift/api/build/v1"
+	fakebuildclient "github.com/openshift/client-go/build/clientset/versioned/fake"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
-	fakebuildclient "github.com/openshift/origin/pkg/build/generated/internalclientset/fake"
 	oadmission "github.com/openshift/origin/pkg/cmd/server/admission"
+
+	_ "github.com/openshift/origin/pkg/build/apis/build/install"
 )
 
 func TestBuildAdmission(t *testing.T) {
@@ -48,7 +52,7 @@ func TestBuildAdmission(t *testing.T) {
 		{
 			name:                "allowed source build clone",
 			object:              testBuildRequest("test-build"),
-			responseObject:      testBuild(buildapi.BuildStrategy{SourceStrategy: &buildapi.SourceBuildStrategy{}}),
+			responseObject:      asV1Build(testBuild(buildapi.BuildStrategy{SourceStrategy: &buildapi.SourceBuildStrategy{}})),
 			kind:                buildapi.Kind("Build"),
 			resource:            buildapi.Resource("builds"),
 			subResource:         "clone",
@@ -70,7 +74,7 @@ func TestBuildAdmission(t *testing.T) {
 		{
 			name:                "denied docker build clone",
 			object:              testBuildRequest("buildname"),
-			responseObject:      testBuild(buildapi.BuildStrategy{DockerStrategy: &buildapi.DockerBuildStrategy{}}),
+			responseObject:      asV1Build(testBuild(buildapi.BuildStrategy{DockerStrategy: &buildapi.DockerBuildStrategy{}})),
 			kind:                buildapi.Kind("Build"),
 			resource:            buildapi.Resource("builds"),
 			subResource:         "clone",
@@ -101,7 +105,7 @@ func TestBuildAdmission(t *testing.T) {
 		},
 		{
 			name:                "allowed build config instantiate",
-			responseObject:      testBuildConfig(buildapi.BuildStrategy{DockerStrategy: &buildapi.DockerBuildStrategy{}}),
+			responseObject:      asV1BuildConfig(testBuildConfig(buildapi.BuildStrategy{DockerStrategy: &buildapi.DockerBuildStrategy{}})),
 			object:              testBuildRequest("test-buildconfig"),
 			kind:                buildapi.Kind("Build"),
 			resource:            buildapi.Resource("buildconfigs"),
@@ -123,7 +127,7 @@ func TestBuildAdmission(t *testing.T) {
 		},
 		{
 			name:                "forbidden build config instantiate",
-			responseObject:      testBuildConfig(buildapi.BuildStrategy{CustomStrategy: &buildapi.CustomBuildStrategy{}}),
+			responseObject:      asV1BuildConfig(testBuildConfig(buildapi.BuildStrategy{CustomStrategy: &buildapi.CustomBuildStrategy{}})),
 			object:              testBuildRequest("buildname"),
 			kind:                buildapi.Kind("Build"),
 			resource:            buildapi.Resource("buildconfigs"),
@@ -164,7 +168,7 @@ func TestBuildAdmission(t *testing.T) {
 		{
 			name:                "allowed jenkins pipeline build clone",
 			object:              testBuildRequest("test-build"),
-			responseObject:      testBuild(buildapi.BuildStrategy{JenkinsPipelineStrategy: &buildapi.JenkinsPipelineBuildStrategy{}}),
+			responseObject:      asV1Build(testBuild(buildapi.BuildStrategy{JenkinsPipelineStrategy: &buildapi.JenkinsPipelineBuildStrategy{}})),
 			kind:                buildapi.Kind("Build"),
 			resource:            buildapi.Resource("builds"),
 			subResource:         "clone",
@@ -210,7 +214,7 @@ func TestBuildAdmission(t *testing.T) {
 				c.(kubeadmission.WantsInternalKubeClientSet).SetInternalKubeClientSet(fakeKubeClient)
 				c.(oadmission.WantsOpenshiftInternalBuildClient).SetOpenshiftInternalBuildClient(fakeBuildClient)
 				attrs := admission.NewAttributesRecord(test.object, test.oldObject, test.kind.WithVersion("version"), "foo", "test-build", test.resource.WithVersion("version"), test.subResource, op, fakeUser())
-				err := c.Admit(attrs)
+				err := c.(admission.MutationInterface).Admit(attrs)
 				if err != nil && test.expectAccept {
 					t.Errorf("unexpected error: %v", err)
 				}
@@ -229,6 +233,8 @@ func TestBuildAdmission(t *testing.T) {
 type fakeObject struct{}
 
 func (*fakeObject) GetObjectKind() schema.ObjectKind { return nil }
+
+func (*fakeObject) DeepCopyObject() runtime.Object { return nil }
 
 func fakeUser() user.Info {
 	return &user.DefaultInfo{
@@ -250,6 +256,15 @@ func testBuild(strategy buildapi.BuildStrategy) *buildapi.Build {
 	}
 }
 
+func asV1Build(in *buildapi.Build) *buildapiv1.Build {
+	out := &buildapiv1.Build{}
+	err := legacyscheme.Scheme.Convert(in, out, nil)
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
+
 func testBuildConfig(strategy buildapi.BuildStrategy) *buildapi.BuildConfig {
 	return &buildapi.BuildConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -262,6 +277,15 @@ func testBuildConfig(strategy buildapi.BuildStrategy) *buildapi.BuildConfig {
 			},
 		},
 	}
+}
+
+func asV1BuildConfig(in *buildapi.BuildConfig) *buildapiv1.BuildConfig {
+	out := &buildapiv1.BuildConfig{}
+	err := legacyscheme.Scheme.Convert(in, out, nil)
+	if err != nil {
+		panic(err)
+	}
+	return out
 }
 
 func reviewResponse(allowed bool, msg string) *authorization.SubjectAccessReview {

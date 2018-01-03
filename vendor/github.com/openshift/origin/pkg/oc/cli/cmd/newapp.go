@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	restclient "k8s.io/client-go/rest"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kcoreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
 	ctl "k8s.io/kubernetes/pkg/kubectl"
 	kcmd "k8s.io/kubernetes/pkg/kubectl/cmd"
@@ -32,14 +32,14 @@ import (
 
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	dockerutil "github.com/openshift/origin/pkg/cmd/util/docker"
 	configcmd "github.com/openshift/origin/pkg/config/cmd"
 	"github.com/openshift/origin/pkg/generate"
 	newapp "github.com/openshift/origin/pkg/generate/app"
-	newcmd "github.com/openshift/origin/pkg/generate/app/cmd"
 	"github.com/openshift/origin/pkg/generate/git"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
+	newcmd "github.com/openshift/origin/pkg/oc/generate/app/cmd"
 	routeapi "github.com/openshift/origin/pkg/route/apis/route"
 	"github.com/openshift/origin/pkg/util"
 )
@@ -166,17 +166,14 @@ func (o *ObjectGeneratorOptions) Complete(baseName, commandName string, f *clien
 	}
 
 	mapper, typer := f.Object()
-	dynamicMapper, dynamicTyper, err := f.UnstructuredObject()
-	if err != nil {
-		return err
-	}
+
 	// ignore errors.   We use this to make a best guess at preferred seralizations, but the command might run without a server
 	discoveryClient, _ := f.DiscoveryClient()
 
 	o.Action.Out, o.Action.ErrOut = out, o.ErrOut
 	o.Action.Bulk.DynamicMapper = &resource.Mapper{
-		RESTMapper:   dynamicMapper,
-		ObjectTyper:  dynamicTyper,
+		RESTMapper:   mapper,
+		ObjectTyper:  typer,
 		ClientMapper: resource.ClientMapperFunc(f.UnstructuredClientForMapping),
 	}
 	o.Action.Bulk.Mapper = &resource.Mapper{
@@ -192,7 +189,7 @@ func (o *ObjectGeneratorOptions) Complete(baseName, commandName string, f *clien
 
 	o.Config.DryRun = o.Action.DryRun
 	if o.Action.Output == "wide" {
-		return kcmdutil.UsageError(c, "wide mode is not a compatible output format")
+		return kcmdutil.UsageErrorf(c, "wide mode is not a compatible output format")
 	}
 	o.CommandPath = c.CommandPath()
 	o.BaseName = baseName
@@ -556,6 +553,9 @@ func getDockerClient() (*docker.Client, error) {
 
 func CompleteAppConfig(config *newcmd.AppConfig, f *clientcmd.Factory, c *cobra.Command, args []string) error {
 	mapper, typer := f.Object()
+	if config.Builder == nil {
+		config.Builder = f.NewBuilder()
+	}
 	if config.Mapper == nil {
 		config.Mapper = mapper
 	}
@@ -605,26 +605,26 @@ func CompleteAppConfig(config *newcmd.AppConfig, f *clientcmd.Factory, c *cobra.
 
 	unknown := config.AddArguments(args)
 	if len(unknown) != 0 {
-		return kcmdutil.UsageError(c, "Did not recognize the following arguments: %v", unknown)
+		return kcmdutil.UsageErrorf(c, "Did not recognize the following arguments: %v", unknown)
 	}
 
 	if config.AllowMissingImages && config.AsSearch {
-		return kcmdutil.UsageError(c, "--allow-missing-images and --search are mutually exclusive.")
+		return kcmdutil.UsageErrorf(c, "--allow-missing-images and --search are mutually exclusive.")
 	}
 
 	if len(config.SourceImage) != 0 && len(config.SourceImagePath) == 0 {
-		return kcmdutil.UsageError(c, "--source-image-path must be specified when --source-image is specified.")
+		return kcmdutil.UsageErrorf(c, "--source-image-path must be specified when --source-image is specified.")
 	}
 	if len(config.SourceImage) == 0 && len(config.SourceImagePath) != 0 {
-		return kcmdutil.UsageError(c, "--source-image must be specified when --source-image-path is specified.")
+		return kcmdutil.UsageErrorf(c, "--source-image must be specified when --source-image-path is specified.")
 	}
 
 	if config.BinaryBuild && config.Strategy == generate.StrategyPipeline {
-		return kcmdutil.UsageError(c, "specifying binary builds and the pipeline strategy at the same time is not allowed.")
+		return kcmdutil.UsageErrorf(c, "specifying binary builds and the pipeline strategy at the same time is not allowed.")
 	}
 
 	if len(config.BuildArgs) > 0 && config.Strategy != generate.StrategyUnspecified && config.Strategy != generate.StrategyDocker {
-		return kcmdutil.UsageError(c, "Cannot use '--build-arg' without a Docker build")
+		return kcmdutil.UsageErrorf(c, "Cannot use '--build-arg' without a Docker build")
 	}
 	return nil
 }
@@ -651,12 +651,7 @@ func setLabels(labels map[string]string, result *newcmd.AppResult) error {
 
 func hasLabel(labels map[string]string, result *newcmd.AppResult) (bool, error) {
 	for _, obj := range result.List.Items {
-		objCopy, err := kapi.Scheme.DeepCopy(obj)
-		if err != nil {
-			return false, err
-		}
-		err = util.AddObjectLabelsWithFlags(objCopy.(runtime.Object), labels, util.ErrorOnExistingDstKey)
-		if err != nil {
+		if err := util.AddObjectLabelsWithFlags(obj.DeepCopyObject(), labels, util.ErrorOnExistingDstKey); err != nil {
 			return true, nil
 		}
 	}

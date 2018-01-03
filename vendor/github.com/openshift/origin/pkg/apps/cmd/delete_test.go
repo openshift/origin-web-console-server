@@ -12,18 +12,19 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/diff"
 	clientgotesting "k8s.io/client-go/testing"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	_ "github.com/openshift/origin/pkg/apps/apis/apps/install"
-	deploytest "github.com/openshift/origin/pkg/apps/apis/apps/test"
+	appstest "github.com/openshift/origin/pkg/apps/apis/apps/test"
 	appsfake "github.com/openshift/origin/pkg/apps/generated/internalclientset/fake"
-	deployutil "github.com/openshift/origin/pkg/apps/util"
+	appsutil "github.com/openshift/origin/pkg/apps/util"
 )
 
 func mkdeployment(version int64) kapi.ReplicationController {
-	deployment, _ := deployutil.MakeDeployment(deploytest.OkDeploymentConfig(version), kapi.Codecs.LegacyCodec(deployapi.SchemeGroupVersion))
+	deployment, _ := appsutil.MakeDeployment(appstest.OkDeploymentConfig(version), legacyscheme.Codecs.LegacyCodec(appsapi.SchemeGroupVersion))
 	return *deployment
 }
 
@@ -44,13 +45,13 @@ func TestStop(t *testing.T) {
 
 	pauseBytes := []byte(`{"spec":{"paused":true,"replicas":0,"revisionHistoryLimit":0}}`)
 
-	fakeDC := map[string]*deployapi.DeploymentConfig{
-		"simple-stop":           deploytest.OkDeploymentConfig(1),
-		"legacy-simple-stop":    deploytest.OkDeploymentConfig(1),
-		"multi-stop":            deploytest.OkDeploymentConfig(5),
-		"legacy-multi-stop":     deploytest.OkDeploymentConfig(5),
-		"no-deployments":        deploytest.OkDeploymentConfig(5),
-		"legacy-no-deployments": deploytest.OkDeploymentConfig(5),
+	fakeDC := map[string]*appsapi.DeploymentConfig{
+		"simple-stop":           appstest.OkDeploymentConfig(1),
+		"legacy-simple-stop":    appstest.OkDeploymentConfig(1),
+		"multi-stop":            appstest.OkDeploymentConfig(5),
+		"legacy-multi-stop":     appstest.OkDeploymentConfig(5),
+		"no-deployments":        appstest.OkDeploymentConfig(5),
+		"legacy-no-deployments": appstest.OkDeploymentConfig(5),
 	}
 
 	emptyClientset := func() *appsfake.Clientset {

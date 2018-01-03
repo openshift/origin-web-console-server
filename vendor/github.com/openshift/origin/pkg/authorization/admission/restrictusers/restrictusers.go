@@ -14,13 +14,13 @@ import (
 	"k8s.io/kubernetes/pkg/apis/rbac"
 	kadmission "k8s.io/kubernetes/pkg/kubeapiserver/admission"
 
-	authorizationclient "github.com/openshift/origin/pkg/authorization/generated/internalclientset"
-	authorizationtypedclient "github.com/openshift/origin/pkg/authorization/generated/internalclientset/typed/authorization/internalversion"
+	userapi "github.com/openshift/api/user/v1"
+	authorizationclient "github.com/openshift/client-go/authorization/clientset/versioned"
+	authorizationtypedclient "github.com/openshift/client-go/authorization/clientset/versioned/typed/authorization/v1"
+	userclient "github.com/openshift/client-go/user/clientset/versioned"
+	userinformer "github.com/openshift/client-go/user/informers/externalversions"
 	oadmission "github.com/openshift/origin/pkg/cmd/server/admission"
-	userapi "github.com/openshift/origin/pkg/user/apis/user"
 	usercache "github.com/openshift/origin/pkg/user/cache"
-	userinformer "github.com/openshift/origin/pkg/user/generated/informers/internalversion"
-	userclient "github.com/openshift/origin/pkg/user/generated/internalclientset"
 )
 
 func Register(plugins *admission.Plugins) {
@@ -72,7 +72,7 @@ func (q *restrictUsersAdmission) SetOpenshiftInternalUserClient(userClient userc
 }
 
 func (q *restrictUsersAdmission) SetUserInformer(userInformers userinformer.SharedInformerFactory) {
-	q.groupCache = usercache.NewGroupCache(userInformers.User().InternalVersion().Groups())
+	q.groupCache = usercache.NewGroupCache(userInformers.User().V1().Groups())
 }
 
 // subjectsDelta returns the relative complement of elementsToIgnore in
@@ -200,7 +200,7 @@ func (q *restrictUsersAdmission) Admit(a admission.Attributes) (err error) {
 	return nil
 }
 
-func (q *restrictUsersAdmission) Validate() error {
+func (q *restrictUsersAdmission) ValidateInitialization() error {
 	if q.kclient == nil {
 		return errors.New("RestrictUsersAdmission plugin requires a Kubernetes client")
 	}

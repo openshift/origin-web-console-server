@@ -7,9 +7,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	"github.com/openshift/origin/pkg/apps/apis/apps/validation"
 )
 
@@ -17,7 +17,7 @@ type strategy struct {
 	runtime.ObjectTyper
 }
 
-var Strategy = strategy{kapi.Scheme}
+var Strategy = strategy{legacyscheme.Scheme}
 
 func (strategy) NamespaceScoped() bool {
 	return true
@@ -41,8 +41,8 @@ func (strategy) PrepareForCreate(ctx apirequest.Context, obj runtime.Object) {
 
 // PrepareForUpdate clears fields that are not allowed to be set by the instantiate endpoint.
 func (strategy) PrepareForUpdate(ctx apirequest.Context, obj, old runtime.Object) {
-	newDc := obj.(*deployapi.DeploymentConfig)
-	oldDc := old.(*deployapi.DeploymentConfig)
+	newDc := obj.(*appsapi.DeploymentConfig)
+	oldDc := old.(*appsapi.DeploymentConfig)
 
 	// Allow the status fields that need to be updated in every instantiation.
 	oldStatus := oldDc.Status
@@ -66,10 +66,10 @@ func (strategy) CheckGracefulDelete(obj runtime.Object, options *metav1.DeleteOp
 
 // Validate is a no-op for the instantiate endpoint.
 func (strategy) Validate(ctx apirequest.Context, obj runtime.Object) field.ErrorList {
-	return validation.ValidateDeploymentConfig(obj.(*deployapi.DeploymentConfig))
+	return validation.ValidateDeploymentConfig(obj.(*appsapi.DeploymentConfig))
 }
 
 // ValidateUpdate is the default update validation for the instantiate endpoint.
 func (strategy) ValidateUpdate(ctx apirequest.Context, obj, old runtime.Object) field.ErrorList {
-	return validation.ValidateDeploymentConfigUpdate(obj.(*deployapi.DeploymentConfig), old.(*deployapi.DeploymentConfig))
+	return validation.ValidateDeploymentConfigUpdate(obj.(*appsapi.DeploymentConfig), old.(*appsapi.DeploymentConfig))
 }

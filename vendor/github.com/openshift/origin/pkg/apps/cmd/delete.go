@@ -8,11 +8,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/kubectl"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	appsclient "github.com/openshift/origin/pkg/apps/generated/internalclientset"
 	"github.com/openshift/origin/pkg/apps/util"
 )
@@ -31,7 +31,7 @@ type DeploymentConfigReaper struct {
 
 // pause marks the deployment configuration as paused to avoid triggering new
 // deployments.
-func (reaper *DeploymentConfigReaper) pause(namespace, name string) (*deployapi.DeploymentConfig, error) {
+func (reaper *DeploymentConfigReaper) pause(namespace, name string) (*appsapi.DeploymentConfig, error) {
 	patchBytes := []byte(`{"spec":{"paused":true,"replicas":0,"revisionHistoryLimit":0}}`)
 	return reaper.appsClient.Apps().DeploymentConfigs(namespace).Patch(name, types.StrategicMergePatchType, patchBytes)
 }
@@ -110,8 +110,9 @@ func (reaper *DeploymentConfigReaper) Stop(namespace, name string, timeout time.
 		}
 
 		// Delete all deployer and hook pods
-		options = metav1.ListOptions{LabelSelector: util.DeployerPodSelector(rc.Name).String()}
-		podList, err := reaper.kc.Core().Pods(rc.Namespace).List(options)
+		podList, err := reaper.kc.Core().Pods(rc.Namespace).List(metav1.ListOptions{
+			LabelSelector: util.DeployerPodSelector(rc.Name).String(),
+		})
 		if err != nil {
 			return err
 		}

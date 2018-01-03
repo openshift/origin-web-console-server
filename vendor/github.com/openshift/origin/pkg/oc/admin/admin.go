@@ -13,9 +13,8 @@ import (
 	"github.com/openshift/origin/pkg/cmd/server/admin"
 	"github.com/openshift/origin/pkg/cmd/templates"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/openshift/origin/pkg/oc/admin/cert"
-	diagnostics "github.com/openshift/origin/pkg/oc/admin/diagnostics"
+	"github.com/openshift/origin/pkg/oc/admin/diagnostics"
 	"github.com/openshift/origin/pkg/oc/admin/groups"
 	"github.com/openshift/origin/pkg/oc/admin/image"
 	"github.com/openshift/origin/pkg/oc/admin/migrate"
@@ -32,6 +31,7 @@ import (
 	"github.com/openshift/origin/pkg/oc/admin/router"
 	"github.com/openshift/origin/pkg/oc/admin/top"
 	"github.com/openshift/origin/pkg/oc/cli/cmd"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 	"github.com/openshift/origin/pkg/oc/experimental/buildchain"
 	exipfailover "github.com/openshift/origin/pkg/oc/experimental/ipfailover"
 )
@@ -69,7 +69,6 @@ func NewCommandAdmin(name, fullName string, in io.Reader, out io.Writer, errout 
 				policy.NewCmdPolicy(policy.PolicyRecommendedName, fullName+" "+policy.PolicyRecommendedName, f, out, errout),
 				groups.NewCmdGroups(groups.GroupsRecommendedName, fullName+" "+groups.GroupsRecommendedName, f, out, errout),
 				cert.NewCmdCert(cert.CertRecommendedName, fullName+" "+cert.CertRecommendedName, out, errout),
-				admin.NewCommandOverwriteBootstrapPolicy(admin.OverwriteBootstrapPolicyCommandName, fullName+" "+admin.OverwriteBootstrapPolicyCommandName, fullName+" "+admin.CreateBootstrapPolicyFileCommand, f, out),
 				kubecmd.NewCmdCertificate(f, out),
 			},
 		},
@@ -109,12 +108,12 @@ func NewCommandAdmin(name, fullName string, in io.Reader, out io.Writer, errout 
 				admin.NewCommandCreateKubeConfig(admin.CreateKubeConfigCommandName, fullName+" "+admin.CreateKubeConfigCommandName, out),
 				admin.NewCommandCreateClient(admin.CreateClientCommandName, fullName+" "+admin.CreateClientCommandName, out),
 
-				admin.NewCommandCreateBootstrapProjectTemplate(f, admin.CreateBootstrapProjectTemplateCommand, fullName+" "+admin.CreateBootstrapProjectTemplateCommand, out),
+				NewCommandCreateBootstrapProjectTemplate(f, CreateBootstrapProjectTemplateCommand, fullName+" "+CreateBootstrapProjectTemplateCommand, out),
 				admin.NewCommandCreateBootstrapPolicyFile(admin.CreateBootstrapPolicyFileCommand, fullName+" "+admin.CreateBootstrapPolicyFileCommand, out),
 
-				admin.NewCommandCreateLoginTemplate(f, admin.CreateLoginTemplateCommand, fullName+" "+admin.CreateLoginTemplateCommand, out),
-				admin.NewCommandCreateProviderSelectionTemplate(f, admin.CreateProviderSelectionTemplateCommand, fullName+" "+admin.CreateProviderSelectionTemplateCommand, out),
-				admin.NewCommandCreateErrorTemplate(f, admin.CreateErrorTemplateCommand, fullName+" "+admin.CreateErrorTemplateCommand, out),
+				NewCommandCreateLoginTemplate(f, CreateLoginTemplateCommand, fullName+" "+CreateLoginTemplateCommand, out),
+				NewCommandCreateProviderSelectionTemplate(f, CreateProviderSelectionTemplateCommand, fullName+" "+CreateProviderSelectionTemplateCommand, out),
+				NewCommandCreateErrorTemplate(f, CreateErrorTemplateCommand, fullName+" "+CreateErrorTemplateCommand, out),
 			},
 		},
 	}
@@ -139,7 +138,7 @@ func NewCommandAdmin(name, fullName string, in io.Reader, out io.Writer, errout 
 	cmds.AddCommand(
 		// part of every root command
 		cmd.NewCmdConfig(fullName, "config", out, errout),
-		cmd.NewCmdCompletion(fullName, f, out),
+		cmd.NewCmdCompletion(fullName, out),
 
 		// hidden
 		cmd.NewCmdOptions(out),

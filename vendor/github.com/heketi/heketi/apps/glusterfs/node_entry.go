@@ -16,6 +16,7 @@ import (
 	"sort"
 
 	"github.com/boltdb/bolt"
+	"github.com/heketi/heketi/executors"
 	"github.com/heketi/heketi/pkg/glusterfs/api"
 	"github.com/heketi/heketi/pkg/utils"
 	"github.com/lpabon/godbc"
@@ -66,6 +67,53 @@ func (n *NodeEntry) registerManageKey(host string) string {
 
 func (n *NodeEntry) registerStorageKey(host string) string {
 	return "STORAGE" + host
+}
+
+// Verify gluster process in the node and return the manage hostname of a node in the cluster
+func GetVerifiedManageHostname(db *bolt.DB, e executors.Executor, clusterId string) (string, error) {
+	godbc.Require(clusterId != "")
+	var cluster *ClusterEntry
+	var node *NodeEntry
+	var err error
+	err = db.View(func(tx *bolt.Tx) error {
+		var err error
+		cluster, err = NewClusterEntryFromId(tx, clusterId)
+		return err
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	for _, n := range cluster.Info.Nodes {
+		var newNode *NodeEntry
+		err = db.View(func(tx *bolt.Tx) error {
+			var err error
+			newNode, err = NewNodeEntryFromId(tx, n)
+			return err
+		})
+
+		if err != nil {
+			//pass on to next node
+			continue
+		}
+
+		// Ignore if the node is not online
+		if !newNode.isOnline() {
+			continue
+		}
+		err = e.GlusterdCheck(newNode.ManageHostName())
+		if err != nil {
+			logger.Info("Glusterd not running in %v", newNode.ManageHostName())
+			continue
+		}
+		node = newNode
+		break
+	}
+	if node != nil {
+		return node.ManageHostName(), nil
+	}
+	return "", ErrNotFound
 }
 
 func (n *NodeEntry) Register(tx *bolt.Tx) error {
@@ -245,55 +293,116 @@ func (n *NodeEntry) addAllDisksToRing(tx *bolt.Tx,
 	return nil
 }
 
-func (n *NodeEntry) SetState(tx *bolt.Tx,
+func (n *NodeEntry) SetState(db *bolt.DB, e executors.Executor,
 	a Allocator,
 	s api.EntryState) error {
 
 	// Check current state
 	switch n.State {
-	case api.EntryStateFailed:
-		if s == api.EntryStateFailed {
-			return nil
-		}
-		return fmt.Errorf("Cannot reuse a failed node")
 
-	case api.EntryStateOnline:
+	// Node is in removed/failed state
+	case api.EntryStateFailed:
 		switch s {
-		case api.EntryStateOnline:
-			return nil
 		case api.EntryStateFailed:
+			return nil
+		case api.EntryStateOnline:
+			return fmt.Errorf("Cannot move a failed/removed node to online state")
 		case api.EntryStateOffline:
+			return fmt.Errorf("Cannot move a failed/removed node to offline state")
 		default:
 			return fmt.Errorf("Unknown state type: %v", s)
 		}
 
-		// Remove all disks from Ring
-		err := n.removeAllDisksFromRing(tx, a)
-		if err != nil {
-			return err
+	// Node is in enabled/online state
+	case api.EntryStateOnline:
+		switch s {
+		case api.EntryStateOnline:
+			return nil
+		case api.EntryStateOffline:
+			// Remove all disks from Ring
+			err := db.Update(func(tx *bolt.Tx) error {
+				err := n.removeAllDisksFromRing(tx, a)
+				if err != nil {
+					return err
+				}
+
+				// Save state
+				n.State = s
+				// Save new state
+				err = n.Save(tx)
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		case api.EntryStateFailed:
+			return fmt.Errorf("Node must be offline before remove operation is performed, node:%v", n.Info.Id)
+		default:
+			return fmt.Errorf("Unknown state type: %v", s)
 		}
 
-		// Save state
-		n.State = s
-
+	// Node is in disabled/offline state
 	case api.EntryStateOffline:
 		switch s {
 		case api.EntryStateOffline:
 			return nil
 		case api.EntryStateOnline:
-			// Add disks back
-			err := n.addAllDisksToRing(tx, a)
+			// Add all disks back
+			err := db.Update(func(tx *bolt.Tx) error {
+				err := n.addAllDisksToRing(tx, a)
+				if err != nil {
+					return err
+				}
+				n.State = s
+				err = n.Save(tx)
+				if err != nil {
+					return err
+				}
+				return nil
+			})
 			if err != nil {
 				return err
 			}
 		case api.EntryStateFailed:
-			// Only thing to do here is to set the state
+			for _, id := range n.Devices {
+				var d *DeviceEntry
+				err := db.View(func(tx *bolt.Tx) error {
+					var err error
+					d, err = NewDeviceEntryFromId(tx, id)
+					if err != nil {
+						return err
+					}
+					return nil
+				})
+				err = d.Remove(db, e, a)
+				if err != nil {
+					if err == ErrNoReplacement {
+						return logger.LogError("Unable to remove node [%v] as no device was found to replace device [%v]", n.Info.Id, d.Id())
+					}
+					return err
+				}
+			}
+
+			// Make the state change to failed
+			err := db.Update(func(tx *bolt.Tx) error {
+				n.State = s
+				err := n.Save(tx)
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+
 		default:
 			return fmt.Errorf("Unknown state type: %v", s)
 		}
-		n.State = s
 	}
-
 	return nil
 }
 
@@ -358,4 +467,8 @@ func (n *NodeEntry) DeviceAdd(id string) {
 
 func (n *NodeEntry) DeviceDelete(id string) {
 	n.Devices = utils.SortedStringsDelete(n.Devices, id)
+}
+
+func NodeEntryUpgrade(tx *bolt.Tx) error {
+	return nil
 }

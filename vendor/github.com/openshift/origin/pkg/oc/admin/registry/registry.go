@@ -17,7 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	kcoreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
@@ -25,10 +25,10 @@ import (
 
 	authapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/openshift/origin/pkg/cmd/util/variable"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	configcmd "github.com/openshift/origin/pkg/config/cmd"
 	"github.com/openshift/origin/pkg/generate/app"
 )
@@ -201,7 +201,7 @@ func NewCmdRegistry(f *clientcmd.Factory, parentName, name string, out, errout i
 // Complete completes any options that are required by validate or run steps.
 func (opts *RegistryOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, out, errout io.Writer, args []string) error {
 	if len(args) > 0 {
-		return kcmdutil.UsageError(cmd, "No arguments are allowed to this command")
+		return kcmdutil.UsageErrorf(cmd, "No arguments are allowed to this command")
 	}
 
 	opts.image = opts.Config.ImageTemplate.ExpandOrDie(opts.Config.Type)
@@ -215,7 +215,7 @@ func (opts *RegistryOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, 
 			return err
 		}
 		if len(remove) > 0 {
-			return kcmdutil.UsageError(cmd, "You may not pass negative labels in %q", opts.Config.Labels)
+			return kcmdutil.UsageErrorf(cmd, "You may not pass negative labels in %q", opts.Config.Labels)
 		}
 		opts.label = valid
 	}
@@ -227,26 +227,26 @@ func (opts *RegistryOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, 
 			return err
 		}
 		if len(remove) > 0 {
-			return kcmdutil.UsageError(cmd, "You may not pass negative labels in selector %q", opts.Config.Selector)
+			return kcmdutil.UsageErrorf(cmd, "You may not pass negative labels in selector %q", opts.Config.Selector)
 		}
 		opts.nodeSelector = valid
 	}
 
 	if len(opts.Config.FSGroup) > 0 {
 		if _, err := strconv.ParseInt(opts.Config.FSGroup, 10, 64); err != nil {
-			return kcmdutil.UsageError(cmd, "invalid group ID %q specified for fsGroup (%v)", opts.Config.FSGroup, err)
+			return kcmdutil.UsageErrorf(cmd, "invalid group ID %q specified for fsGroup (%v)", opts.Config.FSGroup, err)
 		}
 	}
 
 	if len(opts.Config.SupplementalGroups) > 0 {
 		for _, v := range opts.Config.SupplementalGroups {
 			if val, err := strconv.ParseInt(v, 10, 64); err != nil || val == 0 {
-				return kcmdutil.UsageError(cmd, "invalid group ID %q specified for supplemental group (%v)", v, err)
+				return kcmdutil.UsageErrorf(cmd, "invalid group ID %q specified for supplemental group (%v)", v, err)
 			}
 		}
 	}
 	if len(opts.Config.SupplementalGroups) > 0 && len(opts.Config.FSGroup) > 0 {
-		return kcmdutil.UsageError(cmd, "fsGroup and supplemental groups cannot be specified both at the same time")
+		return kcmdutil.UsageErrorf(cmd, "fsGroup and supplemental groups cannot be specified both at the same time")
 	}
 
 	var portsErr error
@@ -420,6 +420,7 @@ func (opts *RegistryOptions) RunCmdRegistry() error {
 				Labels: opts.label,
 			},
 			Spec: extensions.DaemonSetSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: opts.label},
 				Template: kapi.PodTemplateSpec{
 					ObjectMeta: podTemplate.ObjectMeta,
 					Spec:       podTemplate.Spec,
@@ -427,16 +428,16 @@ func (opts *RegistryOptions) RunCmdRegistry() error {
 			},
 		})
 	} else {
-		objects = append(objects, &deployapi.DeploymentConfig{
+		objects = append(objects, &appsapi.DeploymentConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   name,
 				Labels: opts.label,
 			},
-			Spec: deployapi.DeploymentConfigSpec{
+			Spec: appsapi.DeploymentConfigSpec{
 				Replicas: opts.Config.Replicas,
 				Selector: opts.label,
-				Triggers: []deployapi.DeploymentTriggerPolicy{
-					{Type: deployapi.DeploymentTriggerOnConfigChange},
+				Triggers: []appsapi.DeploymentTriggerPolicy{
+					{Type: appsapi.DeploymentTriggerOnConfigChange},
 				},
 				Template: podTemplate,
 			},

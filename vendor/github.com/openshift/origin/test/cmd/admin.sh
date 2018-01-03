@@ -45,7 +45,7 @@ os::test::junit::declare_suite_end
 
 os::test::junit::declare_suite_start "cmd/admin/manage-node"
 # Test admin manage-node operations
-os::cmd::expect_success_and_text 'openshift admin manage-node --help' 'Manage nodes'
+os::cmd::expect_success_and_text 'oc adm manage-node --help' 'Manage nodes'
 
 # create a node object to mess with
 os::cmd::expect_success "echo 'apiVersion: v1
@@ -81,6 +81,7 @@ os::cmd::expect_success_and_text 'oc get node -o yaml' 'unschedulable: true'
 # ensure correct serialization of podList output
 os::cmd::expect_success_and_text "oc adm manage-node --list-pods --selector= -o jsonpath='{ .kind }'" 'List'
 os::cmd::expect_success_and_text "oc adm manage-node --list-pods --selector=" 'NAMESPACE'
+
 echo "manage-node: ok"
 os::test::junit::declare_suite_end
 
@@ -178,10 +179,6 @@ os::cmd::expect_success_and_not_text 'oc get scc/privileged -o yaml' "system:ser
 os::cmd::expect_success 'oc adm policy remove-scc-from-group privileged fake-group'
 os::cmd::expect_success_and_not_text 'oc get scc/privileged -o yaml' 'fake-group'
 echo "admin-scc: ok"
-os::test::junit::declare_suite_end
-
-os::test::junit::declare_suite_start "cmd/admin/overwrite-policy"
-os::cmd::expect_failure_and_text 'oc adm overwrite-policy' 'error: the server does not support legacy policy resources'
 os::test::junit::declare_suite_end
 
 os::test::junit::declare_suite_start "cmd/admin/reconcile-cluster-roles"
@@ -337,7 +334,7 @@ os::cmd::expect_success "oc adm registry --daemonset --images='${USE_IMAGES}'"
 os::cmd::expect_success_and_text 'oc adm registry --daemonset' 'service exists'
 os::cmd::try_until_text 'oc get ds/docker-registry --template="{{.status.desiredNumberScheduled}}"' '1'
 # clean up so we can test non-daemonset
-os::cmd::expect_success "oc adm registry --daemonset -o yaml | oc delete -f -"
+os::cmd::expect_success "oc adm registry --daemonset -o yaml | oc delete -f - -ncmd-admin --cascade=false"
 echo "registry daemonset: ok"
 
 # Test running a registry
@@ -417,6 +414,9 @@ os::cmd::expect_success 'oc adm policy reconcile-sccs --confirm --additive-only=
 os::cmd::expect_success_and_not_text 'oc get scc/restricted -o yaml' 'topic: my-foo-bar'
 echo "reconcile-scc: ok"
 os::test::junit::declare_suite_end
+
+# cleanup the fake node that has been created so that it doesn't confuse other test-cmd scripts
+os::cmd::expect_success "oc delete node/fake-node"
 
 os::test::junit::declare_suite_start "cmd/admin/rolebinding-allowed"
 # Admin can bind local roles without cluster-admin permissions
@@ -522,8 +522,8 @@ os::test::junit::declare_suite_start "cmd/admin/images"
 
 # import image and check its information
 os::cmd::expect_success "oc create -f ${OS_ROOT}/test/testdata/stable-busybox.yaml"
-os::cmd::expect_success_and_text "oc adm top images" "sha256:a59906e33509d14c036c8678d687bd4eec81ed7c4b8ce907b888c607f6a1e0e6\W+default/busybox \(latest\)\W+<none>\W+<none>\W+yes\W+653\.4 KiB"
-os::cmd::expect_success_and_text "oc adm top imagestreams" "default/busybox\W+653\.4 KiB\W+1\W+1"
+os::cmd::expect_success_and_text "oc adm top images" "sha256:a59906e33509d14c036c8678d687bd4eec81ed7c4b8ce907b888c607f6a1e0e6\W+default/busybox \(latest\)\W+<none>\W+<none>\W+yes\W+653\.4KiB"
+os::cmd::expect_success_and_text "oc adm top imagestreams" "default/busybox\W+653\.4KiB\W+1\W+1"
 os::cmd::expect_success "oc delete is/busybox -n default"
 
 # log in as an image-pruner and test that oc adm prune images works against the atomic binary

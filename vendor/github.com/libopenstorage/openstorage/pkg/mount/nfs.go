@@ -15,28 +15,30 @@ type NFSMounter struct {
 }
 
 // NewNFSMounter instance
-func NewNFSMounter(server string, mountImpl MountImpl) (Manager, error) {
+func NewNFSMounter(server string, mountImpl MountImpl, allowedDirs []string) (Manager, error) {
 	m := &NFSMounter{
 		server: server,
 		Mounter: Mounter{
-			mountImpl: mountImpl,
-			mounts:    make(DeviceMap),
-			paths:     make(PathMap),
+			mountImpl:   mountImpl,
+			mounts:      make(DeviceMap),
+			paths:       make(PathMap),
+			allowedDirs: allowedDirs,
 		},
 	}
-	err := m.Load("")
+	err := m.Load([]string{""})
 	if err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
+// Reload reloads the mount table for the specified device
 func (m *NFSMounter) Reload(device string) error {
 	return ErrUnsupported
 }
 
 // Load mount table
-func (m *NFSMounter) Load(source string) error {
+func (m *NFSMounter) Load(source []string) error {
 	info, err := mount.GetMounts()
 	if err != nil {
 		return err
@@ -72,11 +74,9 @@ MountLoop:
 				continue MountLoop
 			}
 		}
-		// XXX Reconstruct refs.
 		mount.Mountpoint = append(mount.Mountpoint,
 			&PathInfo{
 				Path: normalizeMountPath(v.Mountpoint),
-				ref:  1,
 			},
 		)
 	}

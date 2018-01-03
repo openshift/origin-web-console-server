@@ -7,26 +7,27 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
+	kinformers "k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes/fake"
 	clientgotesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
-	kapi "k8s.io/kubernetes/pkg/api"
-	kapihelper "k8s.io/kubernetes/pkg/api/helper"
-	"k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset/fake"
-	kinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
+	kapihelper "k8s.io/kubernetes/pkg/apis/core/helper"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsv1 "github.com/openshift/api/apps/v1"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	_ "github.com/openshift/origin/pkg/apps/apis/apps/install"
-	deploytest "github.com/openshift/origin/pkg/apps/apis/apps/test"
-	deployv1 "github.com/openshift/origin/pkg/apps/apis/apps/v1"
+	appstest "github.com/openshift/origin/pkg/apps/apis/apps/test"
 	appsfake "github.com/openshift/origin/pkg/apps/generated/internalclientset/fake"
 	"github.com/openshift/origin/pkg/apps/generated/listers/apps/internalversion"
-	deployutil "github.com/openshift/origin/pkg/apps/util"
+	appsutil "github.com/openshift/origin/pkg/apps/util"
 )
 
 func alwaysReady() bool { return true }
@@ -42,26 +43,26 @@ func TestHandleScenarios(t *testing.T) {
 		// replicasA is the annotated replica value for backwards compat checks
 		replicasA *int32
 		desiredA  *int32
-		status    deployapi.DeploymentStatus
+		status    appsapi.DeploymentStatus
 		cancelled bool
 	}
 
 	mkdeployment := func(d deployment) *v1.ReplicationController {
-		config := deploytest.OkDeploymentConfig(d.version)
+		config := appstest.OkDeploymentConfig(d.version)
 		if d.test {
-			config = deploytest.TestDeploymentConfig(config)
+			config = appstest.TestDeploymentConfig(config)
 		}
 		config.Namespace = "test"
-		deployment, _ := deployutil.MakeDeploymentV1(config, kapi.Codecs.LegacyCodec(deployv1.SchemeGroupVersion))
-		deployment.Annotations[deployapi.DeploymentStatusAnnotation] = string(d.status)
+		deployment, _ := appsutil.MakeDeploymentV1(config, legacyscheme.Codecs.LegacyCodec(appsv1.SchemeGroupVersion))
+		deployment.Annotations[appsapi.DeploymentStatusAnnotation] = string(d.status)
 		if d.cancelled {
-			deployment.Annotations[deployapi.DeploymentCancelledAnnotation] = deployapi.DeploymentCancelledAnnotationValue
-			deployment.Annotations[deployapi.DeploymentStatusReasonAnnotation] = deployapi.DeploymentCancelledNewerDeploymentExists
+			deployment.Annotations[appsapi.DeploymentCancelledAnnotation] = appsapi.DeploymentCancelledAnnotationValue
+			deployment.Annotations[appsapi.DeploymentStatusReasonAnnotation] = appsapi.DeploymentCancelledNewerDeploymentExists
 		}
 		if d.desiredA != nil {
-			deployment.Annotations[deployapi.DesiredReplicasAnnotation] = strconv.Itoa(int(*d.desiredA))
+			deployment.Annotations[appsapi.DesiredReplicasAnnotation] = strconv.Itoa(int(*d.desiredA))
 		} else {
-			delete(deployment.Annotations, deployapi.DesiredReplicasAnnotation)
+			delete(deployment.Annotations, appsapi.DesiredReplicasAnnotation)
 		}
 		deployment.Spec.Replicas = &d.replicas
 		return deployment
@@ -100,7 +101,7 @@ func TestHandleScenarios(t *testing.T) {
 			expectedReplicas: 1,
 			before:           []deployment{},
 			after: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusNew, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusNew, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -110,10 +111,10 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       1,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusNew, cancelled: false},
+				{version: 1, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusNew, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusNew, cancelled: false},
+				{version: 1, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusNew, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -123,11 +124,11 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       2,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 1, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusNew, cancelled: false},
+				{version: 1, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusNew, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -137,12 +138,12 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       2,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusNew, cancelled: false},
+				{version: 1, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusNew, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusNew, cancelled: false},
+				{version: 1, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusNew, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -152,10 +153,10 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       1,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 1, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 1, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -165,12 +166,12 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       3,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), desiredA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusRunning, cancelled: false},
+				{version: 1, replicas: 1, replicasA: newInt32(1), desiredA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusRunning, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), desiredA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusRunning, cancelled: true},
+				{version: 1, replicas: 1, replicasA: newInt32(1), desiredA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusRunning, cancelled: true},
 			},
 			errExpected: true,
 		},
@@ -180,10 +181,10 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       2,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusRunning, cancelled: true},
+				{version: 1, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusRunning, cancelled: true},
 			},
 			after: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusRunning, cancelled: true},
+				{version: 1, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusRunning, cancelled: true},
 			},
 			errExpected: true,
 		},
@@ -193,18 +194,18 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       5,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 3, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: true},
-				{version: 4, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
-				{version: 5, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 3, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: true},
+				{version: 4, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: false},
+				{version: 5, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 3, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: true},
-				{version: 4, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
-				{version: 5, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 3, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: true},
+				{version: 4, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: false},
+				{version: 5, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -214,18 +215,18 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       5,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 3, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: true},
-				{version: 4, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 5, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 3, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: true},
+				{version: 4, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 5, replicas: 1, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 3, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: true},
-				{version: 4, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 5, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 3, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: true},
+				{version: 4, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 5, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -235,12 +236,12 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       2,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -250,12 +251,12 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       2,
 			expectedReplicas: 5,
 			before: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 5, replicasA: newInt32(5), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 5, replicasA: newInt32(5), status: appsapi.DeploymentStatusComplete, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -265,12 +266,12 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       2,
 			expectedReplicas: 5,
 			before: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: true},
+				{version: 1, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: true},
 			},
 			after: []deployment{
-				{version: 1, replicas: 5, replicasA: newInt32(5), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: true},
+				{version: 1, replicas: 5, replicasA: newInt32(5), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: true},
 			},
 			errExpected: false,
 		},
@@ -280,12 +281,12 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       2,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 5, replicasA: newInt32(5), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 5, replicasA: newInt32(5), status: appsapi.DeploymentStatusComplete, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newInt32(0), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -295,12 +296,12 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       2,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 5, replicasA: newInt32(5), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: true},
+				{version: 1, replicas: 5, replicasA: newInt32(5), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: true},
 			},
 			after: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: true},
+				{version: 1, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: true},
 			},
 			errExpected: false,
 		},
@@ -310,12 +311,12 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       2,
 			expectedReplicas: 1,
 			before: []deployment{
-				{version: 1, replicas: 0, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: true},
+				{version: 1, replicas: 0, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: true},
 			},
 			after: []deployment{
-				{version: 1, replicas: 1, replicasA: newInt32(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: deployapi.DeploymentStatusFailed, cancelled: true},
+				{version: 1, replicas: 1, replicasA: newInt32(1), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(1), status: appsapi.DeploymentStatusFailed, cancelled: true},
 			},
 			errExpected: false,
 		},
@@ -325,12 +326,12 @@ func TestHandleScenarios(t *testing.T) {
 			newVersion:       2,
 			expectedReplicas: 5,
 			before: []deployment{
-				{version: 1, replicas: 2, replicasA: newInt32(5), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 2, replicasA: newInt32(0), desiredA: newInt32(5), status: deployapi.DeploymentStatusFailed, cancelled: true},
+				{version: 1, replicas: 2, replicasA: newInt32(5), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 2, replicasA: newInt32(0), desiredA: newInt32(5), status: appsapi.DeploymentStatusFailed, cancelled: true},
 			},
 			after: []deployment{
-				{version: 1, replicas: 5, replicasA: newInt32(5), status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(5), status: deployapi.DeploymentStatusFailed, cancelled: true},
+				{version: 1, replicas: 5, replicasA: newInt32(5), status: appsapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newInt32(0), desiredA: newInt32(5), status: appsapi.DeploymentStatusFailed, cancelled: true},
 			},
 			errExpected: false,
 		},
@@ -339,7 +340,7 @@ func TestHandleScenarios(t *testing.T) {
 	for _, test := range tests {
 		t.Logf("evaluating test: %s", test.name)
 
-		var updatedConfig *deployapi.DeploymentConfig
+		var updatedConfig *appsapi.DeploymentConfig
 		deployments := map[string]*v1.ReplicationController{}
 		toStore := []*v1.ReplicationController{}
 		for _, template := range test.before {
@@ -350,7 +351,7 @@ func TestHandleScenarios(t *testing.T) {
 
 		oc := &appsfake.Clientset{}
 		oc.AddReactor("update", "deploymentconfigs", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-			dc := action.(clientgotesting.UpdateAction).GetObject().(*deployapi.DeploymentConfig)
+			dc := action.(clientgotesting.UpdateAction).GetObject().(*appsapi.DeploymentConfig)
 			updatedConfig = dc
 			return true, dc, nil
 		})
@@ -365,7 +366,7 @@ func TestHandleScenarios(t *testing.T) {
 			deployments[rc.Name] = rc
 			return true, rc, nil
 		})
-		codec := kapi.Codecs.LegacyCodec(deployv1.SchemeGroupVersion)
+		codec := legacyscheme.Codecs.LegacyCodec(appsv1.SchemeGroupVersion)
 
 		dcInformer := &fakeDeploymentConfigInformer{
 			informer: cache.NewSharedIndexInformer(
@@ -377,7 +378,7 @@ func TestHandleScenarios(t *testing.T) {
 						return oc.Apps().DeploymentConfigs(metav1.NamespaceAll).Watch(options)
 					},
 				},
-				&deployapi.DeploymentConfig{},
+				&appsapi.DeploymentConfig{},
 				2*time.Minute,
 				cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 			),
@@ -393,9 +394,9 @@ func TestHandleScenarios(t *testing.T) {
 			rcInformer.Informer().GetStore().Add(toStore[i])
 		}
 
-		config := deploytest.OkDeploymentConfig(test.newVersion)
+		config := appstest.OkDeploymentConfig(test.newVersion)
 		if test.test {
-			config = deploytest.TestDeploymentConfig(config)
+			config = appstest.TestDeploymentConfig(config)
 		}
 		config.Spec.Replicas = test.replicas
 		config.Namespace = "test"
@@ -413,8 +414,8 @@ func TestHandleScenarios(t *testing.T) {
 		for _, deployment := range deployments {
 			actualDeployments = append(actualDeployments, deployment)
 		}
-		sort.Sort(deployutil.ByLatestVersionDescV1(expectedDeployments))
-		sort.Sort(deployutil.ByLatestVersionDescV1(actualDeployments))
+		sort.Sort(appsutil.ByLatestVersionDescV1(expectedDeployments))
+		sort.Sort(appsutil.ByLatestVersionDescV1(actualDeployments))
 
 		if updatedConfig != nil {
 			config = updatedConfig
@@ -449,21 +450,21 @@ func newInt32(i int32) *int32 {
 	return &i
 }
 
-func newDC(version, replicas, maxUnavailable int, cond deployapi.DeploymentCondition) *deployapi.DeploymentConfig {
-	return &deployapi.DeploymentConfig{
-		Spec: deployapi.DeploymentConfigSpec{
+func newDC(version, replicas, maxUnavailable int, cond appsapi.DeploymentCondition) *appsapi.DeploymentConfig {
+	return &appsapi.DeploymentConfig{
+		Spec: appsapi.DeploymentConfigSpec{
 			Replicas: int32(replicas),
-			Strategy: deployapi.DeploymentStrategy{
-				Type: deployapi.DeploymentStrategyTypeRolling,
-				RollingParams: &deployapi.RollingDeploymentStrategyParams{
+			Strategy: appsapi.DeploymentStrategy{
+				Type: appsapi.DeploymentStrategyTypeRolling,
+				RollingParams: &appsapi.RollingDeploymentStrategyParams{
 					MaxUnavailable: intstr.FromInt(maxUnavailable),
 					MaxSurge:       intstr.FromInt(1),
 				},
 			},
 		},
-		Status: deployapi.DeploymentConfigStatus{
+		Status: appsapi.DeploymentConfigStatus{
 			LatestVersion: int64(version),
-			Conditions: []deployapi.DeploymentCondition{
+			Conditions: []appsapi.DeploymentCondition{
 				cond,
 			},
 		},
@@ -471,12 +472,12 @@ func newDC(version, replicas, maxUnavailable int, cond deployapi.DeploymentCondi
 }
 
 var (
-	availableCond = deployapi.DeploymentCondition{
-		Type:   deployapi.DeploymentAvailable,
+	availableCond = appsapi.DeploymentCondition{
+		Type:   appsapi.DeploymentAvailable,
 		Status: kapi.ConditionTrue,
 	}
-	unavailableCond = deployapi.DeploymentCondition{
-		Type:   deployapi.DeploymentAvailable,
+	unavailableCond = appsapi.DeploymentCondition{
+		Type:   appsapi.DeploymentAvailable,
 		Status: kapi.ConditionFalse,
 	}
 )
@@ -484,7 +485,7 @@ var (
 func newRC(version, desired, current, ready, available int32) *v1.ReplicationController {
 	return &v1.ReplicationController{
 		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{deployapi.DeploymentVersionAnnotation: strconv.Itoa(int(version))},
+			Annotations: map[string]string{appsapi.DeploymentVersionAnnotation: strconv.Itoa(int(version))},
 		},
 		Spec: v1.ReplicationControllerSpec{
 			Replicas: &desired,
@@ -501,10 +502,10 @@ func TestCalculateStatus(t *testing.T) {
 	tests := []struct {
 		name string
 
-		dc  *deployapi.DeploymentConfig
+		dc  *appsapi.DeploymentConfig
 		rcs []*v1.ReplicationController
 
-		expected deployapi.DeploymentConfigStatus
+		expected appsapi.DeploymentConfigStatus
 	}{
 		{
 			name: "available deployment",
@@ -516,13 +517,13 @@ func TestCalculateStatus(t *testing.T) {
 				newRC(1, 0, 1, 1, 1),
 			},
 
-			expected: deployapi.DeploymentConfigStatus{
+			expected: appsapi.DeploymentConfigStatus{
 				LatestVersion:     int64(3),
 				Replicas:          int32(3),
 				ReadyReplicas:     int32(2),
 				AvailableReplicas: int32(2),
 				UpdatedReplicas:   int32(2),
-				Conditions: []deployapi.DeploymentCondition{
+				Conditions: []appsapi.DeploymentCondition{
 					availableCond,
 				},
 			},
@@ -536,14 +537,14 @@ func TestCalculateStatus(t *testing.T) {
 				newRC(1, 0, 1, 1, 1),
 			},
 
-			expected: deployapi.DeploymentConfigStatus{
+			expected: appsapi.DeploymentConfigStatus{
 				LatestVersion:       int64(2),
 				Replicas:            int32(1),
 				ReadyReplicas:       int32(1),
 				AvailableReplicas:   int32(1),
 				UpdatedReplicas:     int32(0),
 				UnavailableReplicas: int32(1),
-				Conditions: []deployapi.DeploymentCondition{
+				Conditions: []appsapi.DeploymentCondition{
 					unavailableCond,
 				},
 			},

@@ -13,7 +13,7 @@ import (
 	ktypes "k8s.io/apimachinery/pkg/types"
 	utilwait "k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	pconfig "k8s.io/kubernetes/pkg/proxy/config"
 
@@ -106,6 +106,12 @@ func (proxy *OsdnProxy) Start(baseHandler pconfig.EndpointsHandler) error {
 	return nil
 }
 
+func (proxy *OsdnProxy) updateEgressNetworkPolicyLocked(policy networkapi.EgressNetworkPolicy) {
+	proxy.lock.Lock()
+	defer proxy.lock.Unlock()
+	proxy.updateEgressNetworkPolicy(policy)
+}
+
 func (proxy *OsdnProxy) watchEgressNetworkPolicies() {
 	common.RunEventQueue(proxy.networkClient.Network().RESTClient(), common.EgressNetworkPolicies, func(delta cache.Delta) error {
 		policy := delta.Object.(*networkapi.EgressNetworkPolicy)
@@ -117,11 +123,7 @@ func (proxy *OsdnProxy) watchEgressNetworkPolicies() {
 			proxy.egressDNS.Add(*policy)
 		}
 
-		func() {
-			proxy.lock.Lock()
-			defer proxy.lock.Unlock()
-			proxy.updateEgressNetworkPolicy(*policy)
-		}()
+		proxy.updateEgressNetworkPolicyLocked(*policy)
 		return nil
 	})
 }
@@ -360,10 +362,7 @@ func (proxy *OsdnProxy) syncEgressDNSProxyFirewall() {
 			}
 		}
 
-		proxy.lock.Lock()
-		defer proxy.lock.Unlock()
-
-		proxy.updateEgressNetworkPolicy(policy)
+		proxy.updateEgressNetworkPolicyLocked(policy)
 	}
 }
 

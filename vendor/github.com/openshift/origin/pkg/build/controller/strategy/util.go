@@ -8,14 +8,14 @@ import (
 
 	"github.com/golang/glog"
 
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kvalidation "k8s.io/apimachinery/pkg/util/validation"
-	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
+	buildapiv1 "github.com/openshift/api/build/v1"
 	"github.com/openshift/origin/pkg/api/apihelpers"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
-	buildapiv1 "github.com/openshift/origin/pkg/build/apis/build/v1"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
 	"github.com/openshift/origin/pkg/version"
 )
@@ -23,7 +23,6 @@ import (
 const (
 	// dockerSocketPath is the default path for the Docker socket inside the builder container
 	dockerSocketPath      = "/var/run/docker.sock"
-	crioSocketPath        = "/var/run/crio.sock"
 	sourceSecretMountPath = "/var/run/secrets/openshift.io/source"
 
 	DockerPushSecretMountPath      = "/var/run/secrets/openshift.io/push"
@@ -98,14 +97,14 @@ func setupCrioSocket(pod *v1.Pod) {
 		Name: "crio-socket",
 		VolumeSource: v1.VolumeSource{
 			HostPath: &v1.HostPathVolumeSource{
-				Path: crioSocketPath,
+				Path: "/var/run/crio/crio.sock",
 			},
 		},
 	}
 
 	crioSocketVolumeMount := v1.VolumeMount{
 		Name:      "crio-socket",
-		MountPath: crioSocketPath,
+		MountPath: "/var/run/crio/crio.sock",
 	}
 
 	pod.Spec.Volumes = append(pod.Spec.Volumes,
