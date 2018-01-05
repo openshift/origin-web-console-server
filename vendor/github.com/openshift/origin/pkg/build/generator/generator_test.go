@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"net/http"
 	"reflect"
 	"regexp"
 	"strings"
@@ -12,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
@@ -619,7 +620,7 @@ func TestInstantiateWithMissingImageStream(t *testing.T) {
 		t.Fatalf("Expected errors.StatusError, got %T", err)
 	}
 
-	if se.ErrStatus.Code != errors.StatusUnprocessableEntity {
+	if se.ErrStatus.Code != http.StatusUnprocessableEntity {
 		t.Errorf("Expected status 422, got %d", se.ErrStatus.Code)
 	}
 

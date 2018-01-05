@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 	"syscall"
 	"time"
 
 	"go.pedge.io/dlog"
-
+	"github.com/libopenstorage/openstorage/pkg/proto/time"
+	
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -19,17 +19,22 @@ import (
 	"github.com/aws/aws-sdk-go/service/opsworks"
 	"github.com/libopenstorage/openstorage/api"
 	"github.com/libopenstorage/openstorage/pkg/chaos"
-	"github.com/libopenstorage/openstorage/pkg/device"
 	"github.com/libopenstorage/openstorage/volume"
 	"github.com/libopenstorage/openstorage/volume/drivers/common"
 	"github.com/portworx/kvdb"
-	"github.com/libopenstorage/openstorage/pkg/proto/time"
 )
 
 const (
-	Name     = "aws"
-	Type     = api.DriverType_DRIVER_TYPE_BLOCK
+	// Name of the driver
+	Name = "aws"
+	// Type of the driver
+	Type = api.DriverType_DRIVER_TYPE_BLOCK
+	// AwsDBKey for openstorage
 	AwsDBKey = "OpenStorageAWSKey"
+	// awsAccessKeyID identifier for authentication.
+	awsAccessKeyID = "AWS_ACCESS_KEY_ID"
+	// awsSecretAccessKey identifier for authentication.
+	awsSecretAccessKey = "AWS_SECRET_ACCESS_KEY"
 )
 
 var (
@@ -37,6 +42,7 @@ var (
 	koStrayDelete = chaos.Add("aws", "delete", "create in driver before DB")
 )
 
+// Metadata for the driver
 type Metadata struct {
 	zone     string
 	instance string
@@ -44,12 +50,11 @@ type Metadata struct {
 
 // Driver implements VolumeDriver interface
 type Driver struct {
+	volume.StatsDriver
 	volume.StoreEnumerator
 	volume.IODriver
-	*device.SingleLetter
-	md        *Metadata
-	ec2       *ec2.EC2
-	devPrefix string
+	ops StorageOps
+	md  *Metadata
 }
 
 // Init aws volume driver metadata.
@@ -64,30 +69,23 @@ func Init(params map[string]string) (volume.VolumeDriver, error) {
 	}
 	dlog.Infof("AWS instance %v zone %v", instance, zone)
 
-	accessKey, ok := params["AWS_ACCESS_KEY_ID"]
-	if !ok {
-		if accessKey = os.Getenv("AWS_ACCESS_KEY_ID"); accessKey == "" {
-			return nil, fmt.Errorf("AWS_ACCESS_KEY_ID environment variable must be set")
-		}
+	accessKey, secretKey, err := authKeys(params)
+	if err != nil {
+		return nil, err
 	}
-	secretKey, ok := params["AWS_SECRET_ACCESS_KEY"]
-	if !ok {
-		if secretKey = os.Getenv("AWS_SECRET_ACCESS_KEY"); secretKey == "" {
-			return nil, fmt.Errorf("AWS_SECRET_ACCESS_KEY environment variable must be set")
-		}
-	}
-
 	creds := credentials.NewStaticCredentials(accessKey, secretKey, "")
 	region := zone[:len(zone)-1]
-	d := &Driver{
-		ec2: ec2.New(
-			session.New(
-				&aws.Config{
-					Region:      &region,
-					Credentials: creds,
-				},
-			),
+	ec2 := ec2.New(
+		session.New(
+			&aws.Config{
+				Region:      &region,
+				Credentials: creds,
+			},
 		),
+	)
+	d := &Driver{
+		StatsDriver: volume.StatsNotSupported,
+		ops:         NewEc2Storage(instance, ec2),
 		md: &Metadata{
 			zone:     zone,
 			instance: instance,
@@ -95,60 +93,32 @@ func Init(params map[string]string) (volume.VolumeDriver, error) {
 		IODriver:        volume.IONotSupported,
 		StoreEnumerator: common.NewDefaultStoreEnumerator(Name, kvdb.Instance()),
 	}
-	devPrefix, letters, err := d.freeDevices()
-	if err != nil {
-		return nil, err
-	}
-	d.SingleLetter, err = device.NewSingleLetter(devPrefix, letters)
-	if err != nil {
-		return nil, err
-	}
 	return d, nil
 }
 
-// freeDevices returns list of available device IDs.
-func (d *Driver) freeDevices() (string, string, error) {
-	initial := []byte("fghijklmnop")
-	free := make([]byte, len(initial))
-	self, err := d.describe()
+// authKeys return authentication keys for this instance.
+func authKeys(params map[string]string) (string, string, error) {
+	accessKey, err := getAuthKey(awsAccessKeyID, params)
 	if err != nil {
 		return "", "", err
 	}
-	devPrefix := "/dev/sd"
-	for _, dev := range self.BlockDeviceMappings {
-		if dev.DeviceName == nil {
-			return "", "", fmt.Errorf("Nil device name")
-		}
-		devName := *dev.DeviceName
 
-		// per AWS docs EC instances have the root mounted at /dev/sda1, this label should be skipped
-		if devName == "/dev/sda1" {
-			continue
-		}
-		if !strings.HasPrefix(devName, devPrefix) {
-			devPrefix = "/dev/xvd"
-			if !strings.HasPrefix(devName, devPrefix) {
-				return "", "", fmt.Errorf("bad device name %q", devName)
-			}
-		}
-		letter := devName[len(devPrefix):]
-		if len(letter) != 1 {
-			return "", "", fmt.Errorf("too many letters %q", devName)
-		}
-		index := letter[0] - 'f'
-		if index > ('p' - 'f') {
-			continue
-		}
-		initial[index] = '0'
+	secretKey, err := getAuthKey(awsSecretAccessKey, params)
+	if err != nil {
+		return "", "", err
 	}
-	count := 0
-	for _, b := range initial {
-		if b != '0' {
-			free[count] = b
-			count++
+	return accessKey, secretKey, nil
+}
+
+// getAuthKey retrieves specicified key from params or env var
+func getAuthKey(key string, params map[string]string) (string, error) {
+	val, ok := params[key]
+	if !ok {
+		if val = os.Getenv(key); len(val) == 0 {
+			return "", fmt.Errorf("Authentication error: %v is not set", key)
 		}
 	}
-	return devPrefix, string(free[:count]), nil
+	return val, nil
 }
 
 // mapCos translates a CoS specified in spec to a volume.
@@ -189,38 +159,22 @@ func metadata(key string) (string, error) {
 	return string(body), nil
 }
 
-// describe retrieves running instance desscription.
-func (d *Driver) describe() (*ec2.Instance, error) {
-	request := &ec2.DescribeInstancesInput{
-		InstanceIds: []*string{&d.md.instance},
-	}
-	out, err := d.ec2.DescribeInstances(request)
-	if err != nil {
-		return nil, err
-	}
-	if len(out.Reservations) != 1 {
-		return nil, fmt.Errorf("DescribeInstances(%v) returned %v reservations, expect 1",
-			d.md.instance, len(out.Reservations))
-	}
-	if len(out.Reservations[0].Instances) != 1 {
-		return nil, fmt.Errorf("DescribeInstances(%v) returned %v Reservations, expect 1",
-			d.md.instance, len(out.Reservations[0].Instances))
-	}
-	return out.Reservations[0].Instances[0], nil
-}
-
+// Name returns the name of the driver
 func (d *Driver) Name() string {
 	return Name
 }
 
+// Type returns the type of the driver
 func (d *Driver) Type() api.DriverType {
 	return Type
 }
 
-func (v *Driver) Status() [][2]string {
+// Status returns the current status
+func (d *Driver) Status() [][2]string {
 	return [][2]string{}
 }
 
+// Create creates a new volume
 func (d *Driver) Create(
 	locator *api.VolumeLocator,
 	source *api.Source,
@@ -234,21 +188,18 @@ func (d *Driver) Create(
 		id := string(source.Parent)
 		snapID = &id
 	}
-	dryRun := false
-	encrypted := false
-	req := &ec2.CreateVolumeInput{
+	ec2Vol := &ec2.Volume{
 		AvailabilityZone: &d.md.zone,
-		DryRun:           &dryRun,
-		Encrypted:        &encrypted,
-		Size:             &sz,
 		VolumeType:       volType,
 		SnapshotId:       snapID,
+		Size:             &sz,
 	}
+
 	// Gp2 Volumes don't support the iops parameter
 	if *volType != opsworks.VolumeTypeGp2 {
-		req.Iops = iops
+		ec2Vol.Iops = iops
 	}
-	vol, err := d.ec2.CreateVolume(req)
+	vol, err := d.ops.Create(ec2Vol, locator.VolumeLabels)
 	if err != nil {
 		dlog.Warnf("Failed in CreateVolumeRequest :%v", err)
 		return "", err
@@ -264,19 +215,15 @@ func (d *Driver) Create(
 	if err != nil {
 		return "", err
 	}
-	if err = d.waitStatus(volume.Id, ec2.VolumeStateAvailable); err != nil {
-		return "", err
-	}
-	if _, err := d.Attach(volume.Id); err != nil {
+	if _, err := d.Attach(volume.Id, nil); err != nil {
 		return "", err
 	}
 
 	dlog.Infof("aws preparing volume %s...", *vol.VolumeId)
-
 	if err := d.Format(volume.Id); err != nil {
 		return "", err
 	}
-	if err := d.Detach(volume.Id); err != nil {
+	if err := d.Detach(volume.Id, false); err != nil {
 		return "", err
 	}
 
@@ -317,166 +264,49 @@ func (d *Driver) merge(v *api.Volume, aws *ec2.Volume) {
 	}
 }
 
-func (d *Driver) waitStatus(volumeID string, desired string) error {
-
-	id := volumeID
-	request := &ec2.DescribeVolumesInput{VolumeIds: []*string{&id}}
-	actual := ""
-
-	for retries, maxRetries := 0, 10; actual != desired && retries < maxRetries; retries++ {
-		awsVols, err := d.ec2.DescribeVolumes(request)
-		if err != nil {
-			return err
-		}
-		if len(awsVols.Volumes) != 1 {
-			return fmt.Errorf("expected one volume %v got %v",
-				volumeID, len(awsVols.Volumes))
-		}
-		if awsVols.Volumes[0].State == nil {
-			return fmt.Errorf("Nil volume state for %v", volumeID)
-		}
-		actual = *awsVols.Volumes[0].State
-		if actual == desired {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
-	if actual != desired {
-		return fmt.Errorf("Volume %v failed to transition to  %v current state %v",
-			volumeID, desired, actual)
-	}
-	return nil
-}
-
-func (d *Driver) waitAttachmentStatus(
-	volumeID string,
-	desired string,
-	timeout time.Duration) error {
-
-	id := volumeID
-	request := &ec2.DescribeVolumesInput{VolumeIds: []*string{&id}}
-	actual := ""
-	interval := 2 * time.Second
-	fmt.Printf("Waiting for state transition to %q", desired)
-	for elapsed, runs := 0*time.Second, 0; actual != desired && elapsed < timeout; elapsed += interval {
-		awsVols, err := d.ec2.DescribeVolumes(request)
-		if err != nil {
-			return err
-		}
-		if len(awsVols.Volumes) != 1 {
-			return fmt.Errorf("expected one volume %v got %v",
-				volumeID, len(awsVols.Volumes))
-		}
-		awsAttachment := awsVols.Volumes[0].Attachments
-		if awsAttachment == nil || len(awsAttachment) == 0 {
-			actual = ec2.VolumeAttachmentStateDetached
-			if actual == desired {
-				break
-			}
-			return fmt.Errorf("Nil attachment state for %v", volumeID)
-		}
-		actual = *awsAttachment[0].State
-		if actual == desired {
-			break
-		}
-		time.Sleep(interval)
-		if (runs % 10) == 0 {
-			fmt.Print(".")
-		}
-	}
-	fmt.Printf("\n")
-	if actual != desired {
-		return fmt.Errorf("Volume %v failed to transition to  %v current state %v",
-			volumeID, desired, actual)
-	}
-	return nil
-}
-
-func (d *Driver) devicePath(volumeID string) (string, error) {
-
-	awsVolID := volumeID
-
-	request := &ec2.DescribeVolumesInput{VolumeIds: []*string{&awsVolID}}
-	awsVols, err := d.ec2.DescribeVolumes(request)
-	if err != nil {
-		return "", err
-	}
-	if awsVols == nil || len(awsVols.Volumes) == 0 {
-		return "", fmt.Errorf("Failed to retrieve volume for ID %q", volumeID)
-
-	}
-	aws := awsVols.Volumes[0]
-	if aws.Attachments == nil || len(aws.Attachments) == 0 {
-		return "", fmt.Errorf("Invalid volume state, volume must be attached")
-	}
-	if aws.Attachments[0].InstanceId == nil {
-		return "", fmt.Errorf("Unable to determine volume instance attachment")
-	}
-	if d.md.instance != *aws.Attachments[0].InstanceId {
-		return "", fmt.Errorf("volume is attched on %q, it must be attached on %q",
-			*aws.Attachments[0].InstanceId, d.md.instance)
-
-	}
-	if aws.Attachments[0].State == nil {
-		return "", fmt.Errorf("Unable to determine volume attachment state")
-	}
-	if *aws.Attachments[0].State != ec2.VolumeAttachmentStateAttached {
-		return "", fmt.Errorf("Invalid volume state %q, volume must be attached",
-			*aws.Attachments[0].State)
-	}
-	if aws.Attachments[0].Device == nil {
-		return "", fmt.Errorf("Unable to determine volume attachment path")
-	}
-	dev := strings.TrimPrefix(*aws.Attachments[0].Device, "/dev/sd")
-	if dev != *aws.Attachments[0].Device {
-		dev = "/dev/xvd" + dev
-	}
-	return dev, nil
-}
-
+// Inspect insepcts a volume
 func (d *Driver) Inspect(volumeIDs []string) ([]*api.Volume, error) {
 	vols, err := d.StoreEnumerator.Inspect(volumeIDs)
 	if err != nil {
 		return nil, err
 	}
-	var ids []*string = make([]*string, len(vols))
+	ids := make([]*string, len(vols))
 	for i, v := range vols {
 		id := v.Id
 		ids[i] = &id
 	}
-	request := &ec2.DescribeVolumesInput{VolumeIds: ids}
-	awsVols, err := d.ec2.DescribeVolumes(request)
+	volumeMap, err := d.ops.Enumerate(ids, nil, "")
 	if err != nil {
 		return nil, err
 	}
-	if awsVols == nil || (len(awsVols.Volumes) != len(vols)) {
-		return nil, fmt.Errorf("AwsVols (%v) do not match recorded vols (%v)", awsVols, vols)
+	if len(volumeMap) != 1 {
+		return nil, fmt.Errorf("Inspect volumeMap mismatch")
 	}
-	for i, v := range awsVols.Volumes {
-		if string(vols[i].Id) != *v.VolumeId {
-			d.merge(vols[i], v)
+	for _, awsVols := range volumeMap {
+		if len(awsVols) != len(vols) {
+			return nil, fmt.Errorf("Inspect volume count mismatch")
+		}
+		for i, v := range awsVols {
+			if string(vols[i].Id) != *v.VolumeId {
+				d.merge(vols[i], v)
+			}
 		}
 	}
 	return vols, nil
 }
 
 func (d *Driver) Delete(volumeID string) error {
-	dryRun := false
-	id := volumeID
-	req := &ec2.DeleteVolumeInput{
-		VolumeId: &id,
-		DryRun:   &dryRun,
-	}
-	_, err := d.ec2.DeleteVolume(req)
-	if err != nil {
+	if err := d.ops.Delete(volumeID); err != nil {
 		return err
 	}
-	err = d.DeleteVol(volumeID)
-	return err
+	return d.DeleteVol(volumeID)
 }
 
-func (d *Driver) Snapshot(volumeID string, readonly bool, locator *api.VolumeLocator) (string, error) {
-	dryRun := false
+func (d *Driver) Snapshot(
+	volumeID string,
+	readonly bool,
+	locator *api.VolumeLocator,
+) (string, error) {
 	vols, err := d.StoreEnumerator.Inspect([]string{volumeID})
 	if err != nil {
 		return "", err
@@ -484,12 +314,10 @@ func (d *Driver) Snapshot(volumeID string, readonly bool, locator *api.VolumeLoc
 	if len(vols) != 1 {
 		return "", fmt.Errorf("Failed to inspect %v len %v", volumeID, len(vols))
 	}
-	awsID := volumeID
-	request := &ec2.CreateSnapshotInput{
-		VolumeId: &awsID,
-		DryRun:   &dryRun,
+	snap, err := d.ops.Snapshot(volumeID, readonly)
+	if err != nil {
+		return "", err
 	}
-	snap, err := d.ec2.CreateSnapshot(request)
 	chaos.Now(koStrayCreate)
 	vols[0].Id = *snap.SnapshotId
 	vols[0].Source = &api.Source{Parent: volumeID}
@@ -503,46 +331,30 @@ func (d *Driver) Snapshot(volumeID string, readonly bool, locator *api.VolumeLoc
 	return vols[0].Id, nil
 }
 
-func (d *Driver) Stats(volumeID string, cumulative bool) (*api.Stats, error) {
-	return nil, volume.ErrNotSupported
+func (d *Driver) Restore(volumeID string, snapID string) error {
+	// New volumes can be created from snapshot but existing volumes
+	// cannot be restored to same volumeID.
+	return volume.ErrNotSupported
 }
 
-func (d *Driver) Alerts(volumeID string) (*api.Alerts, error) {
-	return nil, volume.ErrNotSupported
-}
-
-func (d *Driver) Attach(volumeID string) (path string, err error) {
+func (d *Driver) Attach(
+	volumeID string,
+	attachOptions map[string]string,
+) (string, error) {
 	volume, err := d.GetVol(volumeID)
 	if err != nil {
 		return "", fmt.Errorf("Volume %s could not be located", volumeID)
 	}
-
-	dryRun := false
-	device, err := d.Assign()
+	path, err := d.ops.Attach(volumeID)
 	if err != nil {
 		return "", err
 	}
-	awsVolID := volumeID
-	req := &ec2.AttachVolumeInput{
-		DryRun:     &dryRun,
-		Device:     &device,
-		InstanceId: &d.md.instance,
-		VolumeId:   &awsVolID,
-	}
-	resp, err := d.ec2.AttachVolume(req)
-	if err != nil {
-		return "", err
-	}
-	if err = d.waitAttachmentStatus(volumeID, ec2.VolumeAttachmentStateAttached, time.Minute*5); err != nil {
-		return "", err
-	}
-
-	volume.DevicePath = *resp.Device
+	volume.DevicePath = path
 	if err := d.UpdateVol(volume); err != nil {
+		d.ops.Detach(volumeID)
 		return "", err
 	}
-
-	return *resp.Device, nil
+	return path, nil
 }
 
 func (d *Driver) volumeState(ec2VolState *string) api.VolumeState {
@@ -569,7 +381,14 @@ func (d *Driver) Format(volumeID string) error {
 	}
 
 	// XXX: determine mount state
-	devicePath, err := d.devicePath(volumeID)
+	awsVol, err := d.ops.Inspect([]*string{&volumeID})
+	if err != nil {
+		return err
+	}
+	if len(awsVol) != 1 {
+		return fmt.Errorf("Failed to inspect volume %v", volumeID)
+	}
+	devicePath, err := d.ops.DevicePath(awsVol[0])
 	if err != nil {
 		return err
 	}
@@ -583,19 +402,20 @@ func (d *Driver) Format(volumeID string) error {
 	return d.UpdateVol(volume)
 }
 
-func (d *Driver) Detach(volumeID string) error {
-	force := false
-	awsVolID := volumeID
-	req := &ec2.DetachVolumeInput{
-		InstanceId: &d.md.instance,
-		VolumeId:   &awsVolID,
-		Force:      &force,
-	}
-	if _, err := d.ec2.DetachVolume(req); err != nil {
-
+func (d *Driver) Detach(volumeID string, unmountBeforeDetach bool) error {
+	if err := d.ops.Detach(volumeID); err != nil {
 		return err
 	}
-	return d.waitAttachmentStatus(volumeID, ec2.VolumeAttachmentStateDetached, time.Minute*5)
+	volume, err := d.GetVol(volumeID)
+	if err != nil {
+		dlog.Warnf("Volume %s could not be located, attempting to detach anyway", volumeID)
+	} else {
+		volume.DevicePath = ""
+		if err := d.UpdateVol(volume); err != nil {
+			dlog.Warnf("Failed to update volume", volumeID)
+		}
+	}
+	return nil
 }
 
 func (d *Driver) MountedAt(mountpath string) string {
@@ -607,7 +427,14 @@ func (d *Driver) Mount(volumeID string, mountpath string) error {
 	if err != nil {
 		return fmt.Errorf("Failed to locate volume %q", volumeID)
 	}
-	devicePath, err := d.devicePath(volumeID)
+	awsVol, err := d.ops.Inspect([]*string{&volumeID})
+	if err != nil {
+		return err
+	}
+	if len(awsVol) != 1 {
+		return fmt.Errorf("Failed to inspect volume %v", volumeID)
+	}
+	devicePath, err := d.ops.DevicePath(awsVol[0])
 	if err != nil {
 		return err
 	}
@@ -630,8 +457,4 @@ func (d *Driver) Shutdown() {
 
 func (d *Driver) Set(volumeID string, locator *api.VolumeLocator, spec *api.VolumeSpec) error {
 	return volume.ErrNotSupported
-}
-
-func (d *Driver) GetActiveRequests() (*api.ActiveRequests, error) {
-	return nil, nil
 }

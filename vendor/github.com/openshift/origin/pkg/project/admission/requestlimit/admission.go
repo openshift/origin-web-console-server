@@ -10,8 +10,10 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apiserver/pkg/admission"
 	"k8s.io/apiserver/pkg/authentication/serviceaccount"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
+	userclient "github.com/openshift/client-go/user/clientset/versioned"
+	usertypedclient "github.com/openshift/client-go/user/clientset/versioned/typed/user/v1"
 	oadmission "github.com/openshift/origin/pkg/cmd/server/admission"
 	configlatest "github.com/openshift/origin/pkg/cmd/server/api/latest"
 	requestlimitapi "github.com/openshift/origin/pkg/project/admission/requestlimit/api"
@@ -19,8 +21,6 @@ import (
 	projectapi "github.com/openshift/origin/pkg/project/apis/project"
 	projectcache "github.com/openshift/origin/pkg/project/cache"
 	uservalidation "github.com/openshift/origin/pkg/user/apis/user/validation"
-	userclient "github.com/openshift/origin/pkg/user/generated/internalclientset"
-	usertypedclient "github.com/openshift/origin/pkg/user/generated/internalclientset/typed/user/internalversion"
 )
 
 // allowedTerminatingProjects is the number of projects that are owned by a user, are in terminating state,
@@ -175,7 +175,7 @@ func (o *projectRequestLimit) SetProjectCache(cache *projectcache.ProjectCache) 
 	o.cache = cache
 }
 
-func (o *projectRequestLimit) Validate() error {
+func (o *projectRequestLimit) ValidateInitialization() error {
 	if o.userClient == nil {
 		return fmt.Errorf("ProjectRequestLimit plugin requires an Openshift client")
 	}

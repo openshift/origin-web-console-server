@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/blang/semver"
-	"github.com/docker/docker/cliconfig"
+	cliconfig "github.com/docker/docker/cli/config"
 	dockerclient "github.com/docker/engine-api/client"
 	"github.com/docker/engine-api/types/versions"
 	"github.com/golang/glog"
@@ -28,14 +28,14 @@ import (
 
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
-	osclientcmd "github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/openshift/origin/pkg/cmd/util/variable"
 	"github.com/openshift/origin/pkg/oc/bootstrap/docker/dockerhelper"
 	"github.com/openshift/origin/pkg/oc/bootstrap/docker/dockermachine"
 	"github.com/openshift/origin/pkg/oc/bootstrap/docker/errors"
 	"github.com/openshift/origin/pkg/oc/bootstrap/docker/host"
 	"github.com/openshift/origin/pkg/oc/bootstrap/docker/openshift"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
+	osclientcmd "github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 )
 
 const (
@@ -114,14 +114,27 @@ var (
 		"jenkins pipeline persistent": "examples/jenkins/jenkins-persistent-template.json",
 		"sample pipeline":             "examples/jenkins/pipeline/samplepipeline.yaml",
 	}
-	// serviceCatalogTemplateLocations are templates that will be registered in an internal namespace
-	// when the service catalog is requested
-	serviceCatalogTemplateLocations = map[string]string{
+	// internalTemplateLocations are templates that will be registered in an internal namespace
+	// when the service catalog is requested.  These templates are compatible with both vN and vN-1
+	// clusters.  If they are not, they should be moved into the internalCurrent and internalPrevious maps.
+	internalTemplateLocations = map[string]string{
 		"service catalog":                      "examples/service-catalog/service-catalog.yaml",
-		"template service broker apiserver":    "install/templateservicebroker/apiserver-template.yaml",
 		"template service broker rbac":         "install/templateservicebroker/rbac-template.yaml",
 		"template service broker registration": "install/service-catalog-broker-resources/template-service-broker-registration.yaml",
 	}
+	// internalCurrentTemplateLocations are templates that will be registered in an internal namespace
+	// when the service catalog is requested.  These templates are for the current version of openshift
+	// (vN), for when the client version matches the cluster version.
+	internalCurrentTemplateLocations = map[string]string{
+		"template service broker apiserver": "install/templateservicebroker/apiserver-template.yaml",
+	}
+	// internalPreviousTemplateLocations are templates that will be registered in an internal namespace
+	// when the service catalog is requested, these templates are for the previous version of openshift
+	// (vN-1) to provide N-1 support for older clusters from a newer client.
+	internalPreviousTemplateLocations = map[string]string{
+		"template service broker apiserver": "install/templateservicebroker/previous/apiserver-template.yaml",
+	}
+
 	// loggingTemplateLocations are templates that will be registered in an internal namespace
 	// when logging is requested
 	loggingTemplateLocations = map[string]string{
@@ -222,6 +235,7 @@ type CommonStartConfig struct {
 	HTTPSProxy               string
 	NoProxy                  []string
 	CACert                   string
+	PVCount                  int
 
 	dockerClient    dockerhelper.Interface
 	dockerHelper    *dockerhelper.Helper
@@ -411,9 +425,7 @@ func (c *ClientStartConfig) Complete(f *osclientcmd.Factory, cmd *cobra.Command)
 	c.addTask(conditionalTask("Importing templates", c.ImportTemplates, c.ShouldInitializeData))
 
 	// Import catalog templates
-	c.addTask(conditionalTask("Importing service catalog templates", c.ImportServiceCatalogTemplates, func() bool {
-		return c.ShouldInstallServiceCatalog && c.ShouldInitializeData()
-	}))
+	c.addTask(conditionalTask("Importing internal templates", c.ImportInternalTemplates, c.ShouldInitializeData))
 
 	// Import logging templates
 	c.addTask(conditionalTask("Importing logging templates", c.ImportLoggingTemplates, func() bool {
@@ -601,7 +613,7 @@ func getDockerClient(out io.Writer, dockerMachine string, canStartDockerMachine 
 	dockerTLSVerify := os.Getenv("DOCKER_TLS_VERIFY")
 	dockerCertPath := os.Getenv("DOCKER_CERT_PATH")
 	if len(dockerTLSVerify) > 0 && len(dockerCertPath) == 0 {
-		dockerCertPath = cliconfig.ConfigDir()
+		dockerCertPath = cliconfig.Dir()
 		os.Setenv("DOCKER_CERT_PATH", dockerCertPath)
 	}
 
@@ -910,7 +922,7 @@ func (c *ClientStartConfig) StartOpenShift(out io.Writer) error {
 		return err
 	}
 
-	err = c.OpenShiftHelper().SetupPersistentStorage(authorizationClient.Authorization(), kClient, securityClient, c.HostPersistentVolumesDir)
+	err = c.OpenShiftHelper().SetupPersistentStorage(authorizationClient.Authorization(), kClient, securityClient, c.HostPersistentVolumesDir, c.HostPersistentVolumesDir)
 	if err != nil {
 		return err
 	}
@@ -989,10 +1001,25 @@ func (c *ClientStartConfig) ImportTemplates(out io.Writer) error {
 	return nil
 }
 
-// ImportServiceCatalogTemplates imports service catalog templates into the server
-func (c *ClientStartConfig) ImportServiceCatalogTemplates(out io.Writer) error {
-	if err := c.importObjects(out, openshift.OpenshiftInfraNamespace, serviceCatalogTemplateLocations); err != nil {
+// ImportInternalTemplates imports internal system templates into the server
+func (c *ClientStartConfig) ImportInternalTemplates(out io.Writer) error {
+	if err := c.importObjects(out, openshift.OpenshiftInfraNamespace, internalTemplateLocations); err != nil {
 		return err
+	}
+	version, err := c.OpenShiftHelper().ServerVersion()
+	if err != nil {
+		return err
+	}
+	if clusterVersionIsCurrent(version) {
+		glog.V(2).Infof("Importing templates for latest version")
+		if err := c.importObjects(out, openshift.OpenshiftInfraNamespace, internalCurrentTemplateLocations); err != nil {
+			return err
+		}
+	} else {
+		glog.V(2).Infof("Importing templates for previous version")
+		if err := c.importObjects(out, openshift.OpenshiftInfraNamespace, internalPreviousTemplateLocations); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1011,6 +1038,13 @@ func shouldImportAdminTemplates(v semver.Version) bool {
 
 func useAnsible(v semver.Version) bool {
 	return v.GTE(openshiftVersion36)
+}
+
+// clusterVersionIsCurrent returns whether the cluster version being
+// brought up matches the client binary being used.  This needs to
+// be updated each release.
+func clusterVersionIsCurrent(v semver.Version) bool {
+	return v.GT(openshiftVersion37)
 }
 
 // InstallLogging will start the installation of logging components
@@ -1095,9 +1129,16 @@ func (c *ClientStartConfig) InstallTemplateServiceBroker(out io.Writer) error {
 	if len(publicMaster) == 0 {
 		publicMaster = c.ServerIP
 	}
-	// TODO we want to use this eventually, but until we have our own image for TSB, we have to hardcode this origin
-	//return c.OpenShiftHelper().InstallTemplateServiceBroker(f, c.imageFormat())
-	return c.OpenShiftHelper().InstallTemplateServiceBroker(f, fmt.Sprintf("%s:%s", c.Image, c.ImageVersion), c.ServerLogLevel)
+
+	version, err := c.OpenShiftHelper().ServerVersion()
+	if err != nil {
+		return err
+	}
+	imageTemplate := fmt.Sprintf("%s-${component}:%s", c.Image, c.ImageVersion)
+	if !version.GT(openshiftVersion37) {
+		imageTemplate = fmt.Sprintf("%s:%s", c.Image, c.ImageVersion)
+	}
+	return c.OpenShiftHelper().InstallTemplateServiceBroker(f, imageTemplate, c.ServerLogLevel)
 }
 
 // RegisterTemplateServiceBroker will register the tsb with the service catalog

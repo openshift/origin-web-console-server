@@ -10,9 +10,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/validation/path"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	kapi "k8s.io/kubernetes/pkg/api"
-	kapihelper "k8s.io/kubernetes/pkg/api/helper"
-	"k8s.io/kubernetes/pkg/api/validation"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
+	kapihelper "k8s.io/kubernetes/pkg/apis/core/helper"
+	"k8s.io/kubernetes/pkg/apis/core/validation"
 
 	serverapi "github.com/openshift/origin/pkg/cmd/server/api"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
@@ -103,9 +103,9 @@ func validateImageSignature(signature *imageapi.ImageSignature, fldPath *field.P
 	var trustedCondition, forImageCondition *imageapi.SignatureCondition
 	for i := range signature.Conditions {
 		cond := &signature.Conditions[i]
-		if cond.Type == imageapi.SignatureTrusted && (trustedCondition == nil || !cond.LastProbeTime.Before(trustedCondition.LastProbeTime)) {
+		if cond.Type == imageapi.SignatureTrusted && (trustedCondition == nil || !cond.LastProbeTime.Before(&trustedCondition.LastProbeTime)) {
 			trustedCondition = cond
-		} else if cond.Type == imageapi.SignatureForImage && forImageCondition == nil || !cond.LastProbeTime.Before(forImageCondition.LastProbeTime) {
+		} else if cond.Type == imageapi.SignatureForImage && forImageCondition == nil || !cond.LastProbeTime.Before(&forImageCondition.LastProbeTime) {
 			forImageCondition = cond
 		}
 	}

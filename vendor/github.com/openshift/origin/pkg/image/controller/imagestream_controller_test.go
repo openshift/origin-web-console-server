@@ -6,8 +6,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/diff"
-	kapi "k8s.io/kubernetes/pkg/api"
-	kapihelper "k8s.io/kubernetes/pkg/api/helper"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
+	kapihelper "k8s.io/kubernetes/pkg/apis/core/helper"
 	kcontroller "k8s.io/kubernetes/pkg/controller"
 
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
@@ -233,10 +233,7 @@ func TestHandleImageStream(t *testing.T) {
 
 	for i, test := range testCases {
 		fake := imageclient.NewSimpleClientset()
-		other, err := kapi.Scheme.DeepCopy(test.stream)
-		if err != nil {
-			t.Fatal(err)
-		}
+		other := test.stream.DeepCopy()
 
 		if err := handleImageStream(test.stream, fake.Image(), nil); err != nil {
 			t.Errorf("%d: unexpected error: %v", i, err)

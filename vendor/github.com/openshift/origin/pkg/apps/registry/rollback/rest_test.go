@@ -8,23 +8,25 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
+	apiserverrest "k8s.io/apiserver/pkg/registry/rest"
 	clientgotesting "k8s.io/client-go/testing"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsv1 "github.com/openshift/api/apps/v1"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	_ "github.com/openshift/origin/pkg/apps/apis/apps/install"
-	deploytest "github.com/openshift/origin/pkg/apps/apis/apps/test"
-	deployv1 "github.com/openshift/origin/pkg/apps/apis/apps/v1"
+	appstest "github.com/openshift/origin/pkg/apps/apis/apps/test"
 	appsfake "github.com/openshift/origin/pkg/apps/generated/internalclientset/fake"
-	deployutil "github.com/openshift/origin/pkg/apps/util"
+	appsutil "github.com/openshift/origin/pkg/apps/util"
 )
 
-var codec = kapi.Codecs.LegacyCodec(deployv1.SchemeGroupVersion)
+var codec = legacyscheme.Codecs.LegacyCodec(appsv1.SchemeGroupVersion)
 
 type terribleGenerator struct{}
 
-func (tg *terribleGenerator) GenerateRollback(from, to *deployapi.DeploymentConfig, spec *deployapi.DeploymentConfigRollbackSpec) (*deployapi.DeploymentConfig, error) {
+func (tg *terribleGenerator) GenerateRollback(from, to *appsapi.DeploymentConfig, spec *appsapi.DeploymentConfigRollbackSpec) (*appsapi.DeploymentConfig, error) {
 	return nil, kerrors.NewInternalError(errors.New("something terrible happened"))
 }
 
@@ -32,7 +34,7 @@ var _ RollbackGenerator = &terribleGenerator{}
 
 func TestCreateError(t *testing.T) {
 	rest := REST{}
-	obj, err := rest.Create(apirequest.NewDefaultContext(), &deployapi.DeploymentConfig{}, false)
+	obj, err := rest.Create(apirequest.NewDefaultContext(), &appsapi.DeploymentConfig{}, apiserverrest.ValidateAllObjectFunc, false)
 
 	if err == nil {
 		t.Errorf("Expected an error")
@@ -45,7 +47,7 @@ func TestCreateError(t *testing.T) {
 
 func TestCreateInvalid(t *testing.T) {
 	rest := REST{}
-	obj, err := rest.Create(apirequest.NewDefaultContext(), &deployapi.DeploymentConfigRollback{}, false)
+	obj, err := rest.Create(apirequest.NewDefaultContext(), &appsapi.DeploymentConfigRollback{}, apiserverrest.ValidateAllObjectFunc, false)
 
 	if err == nil {
 		t.Errorf("Expected an error")
@@ -59,20 +61,20 @@ func TestCreateInvalid(t *testing.T) {
 func TestCreateOk(t *testing.T) {
 	oc := &appsfake.Clientset{}
 	oc.AddReactor("get", "deploymentconfigs", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-		return true, deploytest.OkDeploymentConfig(2), nil
+		return true, appstest.OkDeploymentConfig(2), nil
 	})
 	kc := &fake.Clientset{}
 	kc.AddReactor("get", "replicationcontrollers", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-		deployment, _ := deployutil.MakeDeployment(deploytest.OkDeploymentConfig(1), codec)
+		deployment, _ := appsutil.MakeDeployment(appstest.OkDeploymentConfig(1), codec)
 		return true, deployment, nil
 	})
 
-	obj, err := NewREST(oc, kc, codec).Create(apirequest.NewDefaultContext(), &deployapi.DeploymentConfigRollback{
+	obj, err := NewREST(oc, kc, codec).Create(apirequest.NewDefaultContext(), &appsapi.DeploymentConfigRollback{
 		Name: "config",
-		Spec: deployapi.DeploymentConfigRollbackSpec{
+		Spec: appsapi.DeploymentConfigRollbackSpec{
 			Revision: 1,
 		},
-	}, false)
+	}, apiserverrest.ValidateAllObjectFunc, false)
 
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -82,7 +84,7 @@ func TestCreateOk(t *testing.T) {
 		t.Errorf("Expected a result obj")
 	}
 
-	if _, ok := obj.(*deployapi.DeploymentConfig); !ok {
+	if _, ok := obj.(*appsapi.DeploymentConfig); !ok {
 		t.Errorf("expected a deployment config, got a %#v", obj)
 	}
 }
@@ -90,15 +92,15 @@ func TestCreateOk(t *testing.T) {
 func TestCreateRollbackToLatest(t *testing.T) {
 	oc := &appsfake.Clientset{}
 	oc.AddReactor("get", "deploymentconfigs", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-		return true, deploytest.OkDeploymentConfig(2), nil
+		return true, appstest.OkDeploymentConfig(2), nil
 	})
 
-	_, err := NewREST(oc, &fake.Clientset{}, codec).Create(apirequest.NewDefaultContext(), &deployapi.DeploymentConfigRollback{
+	_, err := NewREST(oc, &fake.Clientset{}, codec).Create(apirequest.NewDefaultContext(), &appsapi.DeploymentConfigRollback{
 		Name: "config",
-		Spec: deployapi.DeploymentConfigRollbackSpec{
+		Spec: appsapi.DeploymentConfigRollbackSpec{
 			Revision: 2,
 		},
-	}, false)
+	}, apiserverrest.ValidateAllObjectFunc, false)
 
 	if err == nil {
 		t.Errorf("expected an error when rolling back to the existing deployed revision")
@@ -111,11 +113,11 @@ func TestCreateRollbackToLatest(t *testing.T) {
 func TestCreateGeneratorError(t *testing.T) {
 	oc := &appsfake.Clientset{}
 	oc.AddReactor("get", "deploymentconfigs", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-		return true, deploytest.OkDeploymentConfig(2), nil
+		return true, appstest.OkDeploymentConfig(2), nil
 	})
 	kc := &fake.Clientset{}
 	kc.AddReactor("get", "replicationcontrollers", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-		deployment, _ := deployutil.MakeDeployment(deploytest.OkDeploymentConfig(1), codec)
+		deployment, _ := appsutil.MakeDeployment(appstest.OkDeploymentConfig(1), codec)
 		return true, deployment, nil
 	})
 
@@ -123,15 +125,15 @@ func TestCreateGeneratorError(t *testing.T) {
 		generator: &terribleGenerator{},
 		dn:        oc.Apps(),
 		rn:        kc.Core(),
-		codec:     kapi.Codecs.LegacyCodec(deployv1.SchemeGroupVersion),
+		codec:     legacyscheme.Codecs.LegacyCodec(appsv1.SchemeGroupVersion),
 	}
 
-	_, err := rest.Create(apirequest.NewDefaultContext(), &deployapi.DeploymentConfigRollback{
+	_, err := rest.Create(apirequest.NewDefaultContext(), &appsapi.DeploymentConfigRollback{
 		Name: "config",
-		Spec: deployapi.DeploymentConfigRollbackSpec{
+		Spec: appsapi.DeploymentConfigRollbackSpec{
 			Revision: 1,
 		},
-	}, false)
+	}, apiserverrest.ValidateAllObjectFunc, false)
 
 	if err == nil || !strings.Contains(err.Error(), "something terrible happened") {
 		t.Errorf("Unexpected error: %v", err)
@@ -141,20 +143,20 @@ func TestCreateGeneratorError(t *testing.T) {
 func TestCreateMissingDeployment(t *testing.T) {
 	oc := &appsfake.Clientset{}
 	oc.AddReactor("get", "deploymentconfigs", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-		return true, deploytest.OkDeploymentConfig(2), nil
+		return true, appstest.OkDeploymentConfig(2), nil
 	})
 	kc := &fake.Clientset{}
 	kc.AddReactor("get", "replicationcontrollers", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-		deployment, _ := deployutil.MakeDeployment(deploytest.OkDeploymentConfig(1), codec)
+		deployment, _ := appsutil.MakeDeployment(appstest.OkDeploymentConfig(1), codec)
 		return true, nil, kerrors.NewNotFound(kapi.Resource("replicationController"), deployment.Name)
 	})
 
-	obj, err := NewREST(oc, kc, codec).Create(apirequest.NewDefaultContext(), &deployapi.DeploymentConfigRollback{
+	obj, err := NewREST(oc, kc, codec).Create(apirequest.NewDefaultContext(), &appsapi.DeploymentConfigRollback{
 		Name: "config",
-		Spec: deployapi.DeploymentConfigRollbackSpec{
+		Spec: appsapi.DeploymentConfigRollbackSpec{
 			Revision: 1,
 		},
-	}, false)
+	}, apiserverrest.ValidateAllObjectFunc, false)
 
 	if err == nil {
 		t.Errorf("Expected an error")
@@ -168,22 +170,22 @@ func TestCreateMissingDeployment(t *testing.T) {
 func TestCreateInvalidDeployment(t *testing.T) {
 	oc := &appsfake.Clientset{}
 	oc.AddReactor("get", "deploymentconfigs", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-		return true, deploytest.OkDeploymentConfig(2), nil
+		return true, appstest.OkDeploymentConfig(2), nil
 	})
 	kc := &fake.Clientset{}
 	kc.AddReactor("get", "replicationcontrollers", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
 		// invalidate the encoded config
-		deployment, _ := deployutil.MakeDeployment(deploytest.OkDeploymentConfig(1), codec)
-		deployment.Annotations[deployapi.DeploymentEncodedConfigAnnotation] = ""
+		deployment, _ := appsutil.MakeDeployment(appstest.OkDeploymentConfig(1), codec)
+		deployment.Annotations[appsapi.DeploymentEncodedConfigAnnotation] = ""
 		return true, deployment, nil
 	})
 
-	obj, err := NewREST(oc, kc, codec).Create(apirequest.NewDefaultContext(), &deployapi.DeploymentConfigRollback{
+	obj, err := NewREST(oc, kc, codec).Create(apirequest.NewDefaultContext(), &appsapi.DeploymentConfigRollback{
 		Name: "config",
-		Spec: deployapi.DeploymentConfigRollbackSpec{
+		Spec: appsapi.DeploymentConfigRollbackSpec{
 			Revision: 1,
 		},
-	}, false)
+	}, apiserverrest.ValidateAllObjectFunc, false)
 
 	if err == nil {
 		t.Errorf("Expected an error")
@@ -197,21 +199,21 @@ func TestCreateInvalidDeployment(t *testing.T) {
 func TestCreateMissingDeploymentConfig(t *testing.T) {
 	oc := &appsfake.Clientset{}
 	oc.AddReactor("get", "deploymentconfigs", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-		dc := deploytest.OkDeploymentConfig(2)
-		return true, nil, kerrors.NewNotFound(deployapi.Resource("deploymentConfig"), dc.Name)
+		dc := appstest.OkDeploymentConfig(2)
+		return true, nil, kerrors.NewNotFound(appsapi.Resource("deploymentConfig"), dc.Name)
 	})
 	kc := &fake.Clientset{}
 	kc.AddReactor("get", "replicationcontrollers", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
-		deployment, _ := deployutil.MakeDeployment(deploytest.OkDeploymentConfig(1), codec)
+		deployment, _ := appsutil.MakeDeployment(appstest.OkDeploymentConfig(1), codec)
 		return true, deployment, nil
 	})
 
-	obj, err := NewREST(oc, kc, codec).Create(apirequest.NewDefaultContext(), &deployapi.DeploymentConfigRollback{
+	obj, err := NewREST(oc, kc, codec).Create(apirequest.NewDefaultContext(), &appsapi.DeploymentConfigRollback{
 		Name: "config",
-		Spec: deployapi.DeploymentConfigRollbackSpec{
+		Spec: appsapi.DeploymentConfigRollbackSpec{
 			Revision: 1,
 		},
-	}, false)
+	}, apiserverrest.ValidateAllObjectFunc, false)
 
 	if err == nil {
 		t.Errorf("Expected an error")

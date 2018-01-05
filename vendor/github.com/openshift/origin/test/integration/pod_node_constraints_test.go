@@ -5,12 +5,12 @@ import (
 
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/batch"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	appsclient "github.com/openshift/origin/pkg/apps/generated/internalclientset"
 	authorizationclient "github.com/openshift/origin/pkg/authorization/generated/internalclientset"
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
@@ -129,7 +129,7 @@ func setupUserPodNodeConstraintsTest(t *testing.T, pluginConfig *pluginapi.PodNo
 	addUser := &policy.RoleModificationOptions{
 		RoleNamespace:       ns.Name,
 		RoleName:            bootstrappolicy.AdminRoleName,
-		RoleBindingAccessor: policy.NewClusterRoleBindingAccessor(authorizationclient.NewForConfigOrDie(clusterAdminClientConfig)),
+		RoleBindingAccessor: policy.NewClusterRoleBindingAccessor(authorizationclient.NewForConfigOrDie(clusterAdminClientConfig).Authorization()),
 		Users:               []string{user},
 	}
 	if err := addUser.AddRole(); err != nil {
@@ -208,8 +208,8 @@ func testPodNodeConstraintsJob(nodeName string, nodeSelector map[string]string) 
 	return job
 }
 
-func testPodNodeConstraintsDeploymentConfig(nodeName string, nodeSelector map[string]string) *deployapi.DeploymentConfig {
-	dc := &deployapi.DeploymentConfig{}
+func testPodNodeConstraintsDeploymentConfig(nodeName string, nodeSelector map[string]string) *appsapi.DeploymentConfig {
+	dc := &appsapi.DeploymentConfig{}
 	dc.Name = "testdc"
 	dc.Spec.Replicas = 1
 	dc.Spec.Template = &kapi.PodTemplateSpec{}

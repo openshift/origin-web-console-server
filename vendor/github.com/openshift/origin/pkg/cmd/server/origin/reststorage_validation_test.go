@@ -8,14 +8,13 @@ import (
 	apiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/apiserver/pkg/storage/storagebackend"
 	restclient "k8s.io/client-go/rest"
-	extapi "k8s.io/kubernetes/pkg/apis/extensions"
 	kclientsetinternal "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	fakeinternal "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 	kinternalinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
 
 	_ "github.com/openshift/origin/pkg/api/install"
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	quotaapi "github.com/openshift/origin/pkg/quota/apis/quota"
 	"github.com/openshift/origin/pkg/quota/controller/clusterquotamapping"
 	quotainformer "github.com/openshift/origin/pkg/quota/generated/informers/internalversion"
@@ -29,9 +28,8 @@ import (
 // KnownUpdateValidationExceptions is the list of types that are known to not have an update validation function registered
 // If you add something to this list, explain why it doesn't need update validation.
 var KnownUpdateValidationExceptions = []reflect.Type{
-	reflect.TypeOf(&extapi.Scale{}),                         // scale operation uses the ValidateScale() function for both create and update
 	reflect.TypeOf(&quotaapi.AppliedClusterResourceQuota{}), // this only retrieved, never created.  its a virtual projection of ClusterResourceQuota
-	reflect.TypeOf(&deployapi.DeploymentRequest{}),          // request for deployments already use ValidateDeploymentRequest()
+	reflect.TypeOf(&appsapi.DeploymentRequest{}),            // request for deployments already use ValidateDeploymentRequest()
 }
 
 // TestValidationRegistration makes sure that any RESTStorage that allows create or update has the correct validation register.
@@ -88,19 +86,22 @@ func fakeOpenshiftAPIServerConfig() *OpenshiftAPIConfig {
 	sccStorage := sccstorage.NewREST(restOptionsGetter)
 
 	ret := &OpenshiftAPIConfig{
-		GenericConfig: &apiserver.Config{
-			LoopbackClientConfig: &restclient.Config{},
-			RESTOptionsGetter:    restOptionsGetter,
+		GenericConfig: &apiserver.RecommendedConfig{
+			Config: apiserver.Config{
+				LoopbackClientConfig: &restclient.Config{},
+				RESTOptionsGetter:    restOptionsGetter,
+			},
 		},
-
-		KubeClientInternal:            &kclientsetinternal.Clientset{},
-		KubeletClientConfig:           &kubeletclient.KubeletClientConfig{},
-		KubeInternalInformers:         internalkubeInformerFactory,
-		QuotaInformers:                quotaInformerFactory,
-		SecurityInformers:             securityInformerFactory,
-		SCCStorage:                    sccStorage,
-		EnableBuilds:                  true,
-		ClusterQuotaMappingController: clusterquotamapping.NewClusterQuotaMappingControllerInternal(internalkubeInformerFactory.Core().InternalVersion().Namespaces(), quotaInformerFactory.Quota().InternalVersion().ClusterResourceQuotas()),
+		ExtraConfig: OpenshiftAPIExtraConfig{
+			KubeClientInternal:            &kclientsetinternal.Clientset{},
+			KubeletClientConfig:           &kubeletclient.KubeletClientConfig{},
+			KubeInternalInformers:         internalkubeInformerFactory,
+			QuotaInformers:                quotaInformerFactory,
+			SecurityInformers:             securityInformerFactory,
+			SCCStorage:                    sccStorage,
+			EnableBuilds:                  true,
+			ClusterQuotaMappingController: clusterquotamapping.NewClusterQuotaMappingControllerInternal(internalkubeInformerFactory.Core().InternalVersion().Namespaces(), quotaInformerFactory.Quota().InternalVersion().ClusterResourceQuotas()),
+		},
 	}
 	return ret
 }

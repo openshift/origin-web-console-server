@@ -29,7 +29,7 @@ func TestAll(t *testing.T) {
 
 func setup(t *testing.T) {
 	var err error
-	m, err = New(NFSMount, nil, "")
+	m, err = New(NFSMount, nil, []string{""}, nil, []string{})
 	if err != nil {
 		t.Fatalf("Failed to setup test %v", err)
 	}
@@ -44,13 +44,13 @@ func cleandir(dir string) {
 }
 
 func load(t *testing.T) {
-	require.NoError(t, m.Load(""), "Failed in load")
+	require.NoError(t, m.Load([]string{""}), "Failed in load")
 }
 
 func mountTest(t *testing.T) {
 	err := m.Mount(0, source, dest, "", syscall.MS_BIND, "", 0)
 	require.NoError(t, err, "Failed in mount")
-	err = m.Unmount(source, dest, 0)
+	err = m.Unmount(source, dest, 0, 0)
 	require.NoError(t, err, "Failed in unmount")
 }
 
@@ -65,7 +65,7 @@ func inspect(t *testing.T) {
 	require.Equal(t, dest, p[0].Path, "Expect %q got %q", dest, p[0].Path)
 	s := m.GetSourcePaths()
 	require.NotZero(t, 1, len(s), "Expect 1 source path, actual %v", s)
-	err = m.Unmount(source, dest, 0)
+	err = m.Unmount(source, dest, 0, 0)
 	require.NoError(t, err, "Failed in unmount")
 }
 
@@ -85,7 +85,7 @@ func hasMounts(t *testing.T) {
 	}
 	for i := 5; i >= 0; i-- {
 		dir := fmt.Sprintf("%s%d", dest, i)
-		err := m.Unmount(source, dir, 0)
+		err := m.Unmount(source, dir, 0, 0)
 		require.NoError(t, err, "Failed in unmount")
 		mounts--
 		count = m.HasMounts(source)
@@ -94,7 +94,7 @@ func hasMounts(t *testing.T) {
 
 	for i := 9; i > 5; i-- {
 		dir := fmt.Sprintf("%s%d", dest, i)
-		err := m.Unmount(source, dir, 0)
+		err := m.Unmount(source, dir, 0, 0)
 		require.NoError(t, err, "Failed in mount")
 		mounts--
 		count = m.HasMounts(source)
@@ -108,16 +108,15 @@ func refcounts(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		err := m.Mount(0, source, dest, "", syscall.MS_BIND, "", 0)
 		require.NoError(t, err, "Failed in mount")
-		require.True(t, m.HasMounts(source) > 0, "Refcnt must be greater than zero")
+		require.Equal(t, m.HasMounts(source), 1, "Refcnt must be one")
 	}
-	for i := 9; i > 0; i-- {
-		err := m.Unmount(source, dest, 0)
-		require.NoError(t, err, "Failed in unmount")
-		require.True(t, m.HasMounts(source) > 0, "Refcnt must be greater than zero")
-	}
-	err := m.Unmount(source, dest, 0)
+
+	err := m.Unmount(source, dest, 0, 0)
 	require.NoError(t, err, "Failed in unmount")
 	require.Equal(t, m.HasMounts(source), 0, "Refcnt must go down to zero")
+
+	err = m.Unmount(source, dest, 0, 0)
+	require.Error(t, err, "Unmount should fail")
 }
 
 func exists(t *testing.T) {
@@ -127,7 +126,7 @@ func exists(t *testing.T) {
 	require.False(t, exists, "%q should not be mapped to foo", source)
 	exists, _ = m.Exists(source, dest)
 	require.True(t, exists, "%q should  be mapped to %q", source, dest)
-	err = m.Unmount(source, dest, 0)
+	err = m.Unmount(source, dest, 0, 0)
 	require.NoError(t, err, "Failed in unmount")
 }
 

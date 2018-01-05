@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
 	watchapi "k8s.io/apimachinery/pkg/watch"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/client-go/util/retry"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
-	"k8s.io/kubernetes/pkg/client/retry"
 
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
 	buildtypedclient "github.com/openshift/origin/pkg/build/generated/internalclientset/typed/build/internalversion"
@@ -650,7 +651,7 @@ func RunBuildRunningPodDeleteTest(t testingT, clusterAdminClient buildtypedclien
 	foundFailed := false
 
 	err = wait.Poll(time.Second, 30*time.Second, func() (bool, error) {
-		events, err := clusterAdminKubeClientset.Core().Events(testutil.Namespace()).Search(kapi.Scheme, newBuild)
+		events, err := clusterAdminKubeClientset.Core().Events(testutil.Namespace()).Search(legacyscheme.Scheme, newBuild)
 		if err != nil {
 			t.Fatalf("error getting build events: %v", err)
 			return false, fmt.Errorf("error getting build events: %v", err)

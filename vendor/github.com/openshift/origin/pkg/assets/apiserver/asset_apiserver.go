@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 
 	"github.com/elazarl/go-bindata-assetfs"
 
@@ -22,7 +23,6 @@ import (
 	genericapiserveroptions "k8s.io/apiserver/pkg/server/options"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	utilflag "k8s.io/apiserver/pkg/util/flag"
-	kapi "k8s.io/kubernetes/pkg/api"
 	kversion "k8s.io/kubernetes/pkg/version"
 
 	"github.com/openshift/origin/pkg/api"
@@ -40,12 +40,14 @@ const (
 	OpenShiftWebConsoleClientID = "openshift-web-console"
 )
 
-type AssetServerConfig struct {
-	GenericConfig *genericapiserver.Config
-
-	Options oapi.AssetConfig
-
+type ExtraConfig struct {
+	Options   oapi.AssetConfig
 	PublicURL url.URL
+}
+
+type AssetServerConfig struct {
+	GenericConfig *genericapiserver.RecommendedConfig
+	ExtraConfig   ExtraConfig
 }
 
 // AssetServer serves non-API endpoints for openshift.
@@ -53,18 +55,28 @@ type AssetServer struct {
 	GenericAPIServer *genericapiserver.GenericAPIServer
 
 	PublicURL url.URL
+
+	// TODO figure out sttts envisions these being made available
+	BindAddress string
+	BindNetwork string
 }
 
-type completedAssetServerConfig struct {
-	*AssetServerConfig
+type completedConfig struct {
+	GenericConfig genericapiserver.CompletedConfig
+	ExtraConfig   *ExtraConfig
 }
 
-func NewAssetServerConfig(assetConfig oapi.AssetConfig) (*AssetServerConfig, error) {
+type CompletedConfig struct {
+	// Embed a private pointer that cannot be instantiated outside of this package.
+	*completedConfig
+}
+
+func NewAssetServerConfig(assetConfig oapi.AssetConfig, listener net.Listener) (*AssetServerConfig, error) {
 	publicURL, err := url.Parse(assetConfig.PublicURL)
 	if err != nil {
 		glog.Fatal(err)
 	}
-	_, portString, err := net.SplitHostPort(assetConfig.ServingInfo.BindAddress)
+	host, portString, err := net.SplitHostPort(assetConfig.ServingInfo.BindAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +85,9 @@ func NewAssetServerConfig(assetConfig oapi.AssetConfig) (*AssetServerConfig, err
 		return nil, err
 	}
 	secureServingOptions := genericapiserveroptions.SecureServingOptions{}
+	secureServingOptions.Listener = listener
+	secureServingOptions.BindAddress = net.ParseIP(host)
+	secureServingOptions.BindNetwork = assetConfig.ServingInfo.BindNetwork
 	secureServingOptions.BindPort = port
 	secureServingOptions.ServerCert.CertKey.CertFile = assetConfig.ServingInfo.ServerCert.CertFile
 	secureServingOptions.ServerCert.CertKey.KeyFile = assetConfig.ServingInfo.ServerCert.KeyFile
@@ -85,45 +100,47 @@ func NewAssetServerConfig(assetConfig oapi.AssetConfig) (*AssetServerConfig, err
 		secureServingOptions.SNICertKeys = append(secureServingOptions.SNICertKeys, sniCert)
 	}
 
-	genericConfig := genericapiserver.NewConfig(kapi.Codecs)
+	genericConfig := genericapiserver.NewConfig(legacyscheme.Codecs)
 	genericConfig.EnableDiscovery = false
 	genericConfig.BuildHandlerChainFunc = buildHandlerChainForAssets(publicURL.Path)
 	if err := secureServingOptions.ApplyTo(genericConfig); err != nil {
 		return nil, err
 	}
-	genericConfig.SecureServingInfo.BindAddress = assetConfig.ServingInfo.BindAddress
-	genericConfig.SecureServingInfo.BindNetwork = assetConfig.ServingInfo.BindNetwork
 	genericConfig.SecureServingInfo.MinTLSVersion = crypto.TLSVersionOrDie(assetConfig.ServingInfo.MinTLSVersion)
 	genericConfig.SecureServingInfo.CipherSuites = crypto.CipherSuitesOrDie(assetConfig.ServingInfo.CipherSuites)
 
 	return &AssetServerConfig{
-		GenericConfig: genericConfig,
-		Options:       assetConfig,
-		PublicURL:     *publicURL,
+		GenericConfig: &genericapiserver.RecommendedConfig{Config: *genericConfig},
+		ExtraConfig: ExtraConfig{
+			Options:   assetConfig,
+			PublicURL: *publicURL,
+		},
 	}, nil
 }
 
 // Complete fills in any fields not set that are required to have valid data. It's mutating the receiver.
-func (c *AssetServerConfig) Complete() completedAssetServerConfig {
-	c.GenericConfig.Complete()
+func (c *AssetServerConfig) Complete() completedConfig {
+	cfg := completedConfig{
+		c.GenericConfig.Complete(),
+		&c.ExtraConfig,
+	}
 
-	return completedAssetServerConfig{c}
+	return cfg
 }
 
-// SkipComplete provides a way to construct a server instance without config completion.
-func (c *AssetServerConfig) SkipComplete() completedAssetServerConfig {
-	return completedAssetServerConfig{c}
-}
-
-func (c completedAssetServerConfig) New(delegationTarget genericapiserver.DelegationTarget) (*AssetServer, error) {
-	genericServer, err := c.AssetServerConfig.GenericConfig.SkipComplete().New("openshift-non-api-routes", delegationTarget) // completion is done in Complete, no need for a second time
+func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget) (*AssetServer, error) {
+	genericServer, err := c.GenericConfig.New("openshift-non-api-routes", delegationTarget)
 	if err != nil {
 		return nil, err
 	}
 
 	s := &AssetServer{
 		GenericAPIServer: genericServer,
-		PublicURL:        c.PublicURL,
+
+		PublicURL: c.ExtraConfig.PublicURL,
+		// TODO figure out sttts envisions these being made available
+		BindAddress: c.ExtraConfig.Options.ServingInfo.BindAddress,
+		BindNetwork: c.ExtraConfig.Options.ServingInfo.BindNetwork,
 	}
 
 	if err := c.addAssets(s.GenericAPIServer.Handler.NonGoRestfulMux); err != nil {
@@ -161,21 +178,21 @@ func buildHandlerChainForAssets(consoleRedirectPath string) func(startingHandler
 	}
 }
 
-func (c completedAssetServerConfig) addAssets(serverMux *genericmux.PathRecorderMux) error {
+func (c completedConfig) addAssets(serverMux *genericmux.PathRecorderMux) error {
 	assetHandler, err := c.buildAssetHandler()
 	if err != nil {
 		return err
 	}
 
-	serverMux.UnlistedHandlePrefix(c.PublicURL.Path, http.StripPrefix(c.PublicURL.Path, assetHandler))
-	serverMux.UnlistedHandle(c.PublicURL.Path[0:len(c.PublicURL.Path)-1], http.RedirectHandler(c.PublicURL.Path, http.StatusMovedPermanently))
+	serverMux.UnlistedHandlePrefix(c.ExtraConfig.PublicURL.Path, http.StripPrefix(c.ExtraConfig.PublicURL.Path, assetHandler))
+	serverMux.UnlistedHandle(c.ExtraConfig.PublicURL.Path[0:len(c.ExtraConfig.PublicURL.Path)-1], http.RedirectHandler(c.ExtraConfig.PublicURL.Path, http.StatusMovedPermanently))
 	return nil
 }
 
-func (c completedAssetServerConfig) addExtensionScripts(serverMux *genericmux.PathRecorderMux) error {
+func (c completedConfig) addExtensionScripts(serverMux *genericmux.PathRecorderMux) error {
 	// Extension scripts
-	extScriptsPath := path.Join(c.PublicURL.Path, "scripts/extensions.js")
-	extScriptsHandler, err := assets.ExtensionScriptsHandler(c.Options.ExtensionScripts, c.Options.ExtensionDevelopment)
+	extScriptsPath := path.Join(c.ExtraConfig.PublicURL.Path, "scripts/extensions.js")
+	extScriptsHandler, err := assets.ExtensionScriptsHandler(c.ExtraConfig.Options.ExtensionScripts, c.ExtraConfig.Options.ExtensionDevelopment)
 	if err != nil {
 		return err
 	}
@@ -184,10 +201,10 @@ func (c completedAssetServerConfig) addExtensionScripts(serverMux *genericmux.Pa
 	return nil
 }
 
-func (c completedAssetServerConfig) addExtensionStyleSheets(serverMux *genericmux.PathRecorderMux) error {
+func (c completedConfig) addExtensionStyleSheets(serverMux *genericmux.PathRecorderMux) error {
 	// Extension stylesheets
-	extStylesheetsPath := path.Join(c.PublicURL.Path, "styles/extensions.css")
-	extStylesheetsHandler, err := assets.ExtensionStylesheetsHandler(c.Options.ExtensionStylesheets, c.Options.ExtensionDevelopment)
+	extStylesheetsPath := path.Join(c.ExtraConfig.PublicURL.Path, "styles/extensions.css")
+	extStylesheetsHandler, err := assets.ExtensionStylesheetsHandler(c.ExtraConfig.Options.ExtensionStylesheets, c.ExtraConfig.Options.ExtensionDevelopment)
 	if err != nil {
 		return err
 	}
@@ -196,10 +213,10 @@ func (c completedAssetServerConfig) addExtensionStyleSheets(serverMux *genericmu
 	return nil
 }
 
-func (c completedAssetServerConfig) addExtensionFiles(serverMux *genericmux.PathRecorderMux) {
+func (c completedConfig) addExtensionFiles(serverMux *genericmux.PathRecorderMux) {
 	// Extension files
-	for _, extConfig := range c.Options.Extensions {
-		extBasePath := path.Join(c.PublicURL.Path, "extensions", extConfig.Name)
+	for _, extConfig := range c.ExtraConfig.Options.Extensions {
+		extBasePath := path.Join(c.ExtraConfig.PublicURL.Path, "extensions", extConfig.Name)
 		extPath := extBasePath + "/"
 		extHandler := assets.AssetExtensionHandler(extConfig.SourceDirectory, extPath, extConfig.HTML5Mode)
 		serverMux.UnlistedHandlePrefix(extPath, http.StripPrefix(extBasePath, extHandler))
@@ -207,8 +224,8 @@ func (c completedAssetServerConfig) addExtensionFiles(serverMux *genericmux.Path
 	}
 }
 
-func (c *completedAssetServerConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorderMux) error {
-	masterURL, err := url.Parse(c.Options.MasterPublicURL)
+func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorderMux) error {
+	masterURL, err := url.Parse(c.ExtraConfig.Options.MasterPublicURL)
 	if err != nil {
 		return err
 	}
@@ -223,11 +240,11 @@ func (c *completedAssetServerConfig) addWebConsoleConfig(serverMux *genericmux.P
 		KubernetesPrefix:  server.DefaultLegacyAPIPrefix,
 		OAuthAuthorizeURI: oauthutil.OpenShiftOAuthAuthorizeURL(masterURL.String()),
 		OAuthTokenURI:     oauthutil.OpenShiftOAuthTokenURL(masterURL.String()),
-		OAuthRedirectBase: c.Options.PublicURL,
+		OAuthRedirectBase: c.ExtraConfig.Options.PublicURL,
 		OAuthClientID:     OpenShiftWebConsoleClientID,
-		LogoutURI:         c.Options.LogoutURL,
-		LoggingURL:        c.Options.LoggingPublicURL,
-		MetricsURL:        c.Options.MetricsPublicURL,
+		LogoutURI:         c.ExtraConfig.Options.LogoutURL,
+		LoggingURL:        c.ExtraConfig.Options.LoggingPublicURL,
+		MetricsURL:        c.ExtraConfig.Options.MetricsPublicURL,
 	}
 	kVersionInfo := kversion.Get()
 	oVersionInfo := oversion.Get()
@@ -237,9 +254,9 @@ func (c *completedAssetServerConfig) addWebConsoleConfig(serverMux *genericmux.P
 	}
 
 	extensionProps := assets.WebConsoleExtensionProperties{
-		ExtensionProperties: extensionPropertyArray(c.Options.ExtensionProperties),
+		ExtensionProperties: extensionPropertyArray(c.ExtraConfig.Options.ExtensionProperties),
 	}
-	configPath := path.Join(c.PublicURL.Path, "config.js")
+	configPath := path.Join(c.ExtraConfig.PublicURL.Path, "config.js")
 	configHandler, err := assets.GeneratedConfigHandler(config, versionInfo, extensionProps)
 	configHandler = assets.SecurityHeadersHandler(configHandler)
 	if err != nil {
@@ -250,7 +267,7 @@ func (c *completedAssetServerConfig) addWebConsoleConfig(serverMux *genericmux.P
 	return nil
 }
 
-func (c completedAssetServerConfig) buildAssetHandler() (http.Handler, error) {
+func (c completedConfig) buildAssetHandler() (http.Handler, error) {
 	assets.RegisterMimeTypes()
 
 	assetFunc := assets.JoinAssetFuncs(assets.Asset, java.Asset)
@@ -265,7 +282,7 @@ func (c completedAssetServerConfig) buildAssetHandler() (http.Handler, error) {
 	}
 
 	var err error
-	handler, err = assets.HTML5ModeHandler(c.PublicURL.Path, subcontextMap, handler, assetFunc)
+	handler, err = assets.HTML5ModeHandler(c.ExtraConfig.PublicURL.Path, subcontextMap, handler, assetFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -300,11 +317,11 @@ func extensionPropertyArray(extensionProperties map[string]string) []assets.WebC
 func RunAssetServer(assetServer *AssetServer, stopCh <-chan struct{}) error {
 	go assetServer.GenericAPIServer.PrepareRun().Run(stopCh)
 
-	glog.Infof("Web console listening at https://%s", assetServer.GenericAPIServer.SecureServingInfo.BindAddress)
+	glog.Infof("Web console listening at https://%s", assetServer.BindAddress)
 	glog.Infof("Web console available at %s", assetServer.PublicURL.String())
 
 	// Attempt to verify the server came up for 20 seconds (100 tries * 100ms, 100ms timeout per try)
-	return cmdutil.WaitForSuccessfulDial(true, assetServer.GenericAPIServer.SecureServingInfo.BindNetwork, assetServer.GenericAPIServer.SecureServingInfo.BindAddress, 100*time.Millisecond, 100*time.Millisecond, 100)
+	return cmdutil.WaitForSuccessfulDial(true, assetServer.BindNetwork, assetServer.BindAddress, 100*time.Millisecond, 100*time.Millisecond, 100)
 }
 
 // If we know the location of the asset server, redirect to it when / is requested

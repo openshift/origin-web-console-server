@@ -10,16 +10,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apiserver/pkg/admission"
 	"k8s.io/apiserver/pkg/authentication/user"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/rbac"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 	kadmission "k8s.io/kubernetes/pkg/kubeapiserver/admission"
 
-	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
-	fakeauthorizationclient "github.com/openshift/origin/pkg/authorization/generated/internalclientset/fake"
+	authorizationapi "github.com/openshift/api/authorization/v1"
+	userapi "github.com/openshift/api/user/v1"
+	fakeauthorizationclient "github.com/openshift/client-go/authorization/clientset/versioned/fake"
+	fakeuserclient "github.com/openshift/client-go/user/clientset/versioned/fake"
 	oadmission "github.com/openshift/origin/pkg/cmd/server/admission"
-	userapi "github.com/openshift/origin/pkg/user/apis/user"
-	fakeuserclient "github.com/openshift/origin/pkg/user/generated/internalclientset/fake"
 )
 
 func TestAdmission(t *testing.T) {
@@ -370,7 +370,7 @@ func TestAdmission(t *testing.T) {
 		plugin.(oadmission.WantsOpenshiftInternalUserClient).SetOpenshiftInternalUserClient(fakeUserClient)
 		plugin.(*restrictUsersAdmission).groupCache = fakeGroupCache{}
 
-		err = admission.Validate(plugin)
+		err = admission.ValidateInitialization(plugin)
 		if err != nil {
 			t.Errorf("unexpected error validating admission plugin: %v", err)
 		}
@@ -387,7 +387,7 @@ func TestAdmission(t *testing.T) {
 			&user.DefaultInfo{},
 		)
 
-		err = plugin.Admit(attributes)
+		err = plugin.(admission.MutationInterface).Admit(attributes)
 		switch {
 		case len(tc.expectedErr) == 0 && err == nil:
 		case len(tc.expectedErr) == 0 && err != nil:

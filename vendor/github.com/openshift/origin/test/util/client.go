@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
 	restclient "k8s.io/client-go/rest"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	kcoreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
 	"k8s.io/kubernetes/pkg/quota"
@@ -84,7 +84,7 @@ func GetScopedClientForUser(clusterAdminClientConfig *restclient.Config, usernam
 	if _, _, err := GetClientForUser(clusterAdminClientConfig, username); err != nil {
 		return nil, nil, err
 	}
-	user, err := userclient.NewForConfigOrDie(clusterAdminClientConfig).Users().Get(username, metav1.GetOptions{})
+	user, err := userclient.NewForConfigOrDie(clusterAdminClientConfig).User().Users().Get(username, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -98,7 +98,7 @@ func GetScopedClientForUser(clusterAdminClientConfig *restclient.Config, usernam
 		UserName:    user.Name,
 		UserUID:     string(user.UID),
 	}
-	if _, err := oauthclient.NewForConfigOrDie(clusterAdminClientConfig).OAuthAccessTokens().Create(token); err != nil {
+	if _, err := oauthclient.NewForConfigOrDie(clusterAdminClientConfig).Oauth().OAuthAccessTokens().Create(token); err != nil {
 		return nil, nil, err
 	}
 

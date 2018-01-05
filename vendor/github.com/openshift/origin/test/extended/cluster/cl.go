@@ -10,14 +10,14 @@ import (
 	g "github.com/onsi/ginkgo"
 	o "github.com/onsi/gomega"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kclientset "k8s.io/client-go/kubernetes"
 	e2e "k8s.io/kubernetes/test/e2e/framework"
 
 	oapi "github.com/openshift/origin/pkg/api"
 	projectapi "github.com/openshift/origin/pkg/project/apis/project"
 	exutil "github.com/openshift/origin/test/extended/util"
 	testutil "github.com/openshift/origin/test/util"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 )
 
 const deploymentRunTimeout = 5 * time.Minute
@@ -92,15 +92,15 @@ var _ = g.Describe("[Feature:Performance][Serial][Slow] Load cluster", func() {
 					}
 					allArgs = append(allArgs, templateObj.Name)
 
-					if template.Parameters == (ParameterConfigType{}) {
-						e2e.Logf("Pod environment variables will not be modified.")
+					if template.Parameters == nil {
+						e2e.Logf("Template environment variables will not be modified.")
 					} else {
 						params := convertVariablesToString(template.Parameters)
 						allArgs = append(allArgs, params...)
 					}
 
 					config, err := oc.AdminTemplateClient().Template().Templates(nsName).Create(templateObj)
-					e2e.Logf("Template %v created, config: %+v", templateObj.Name, config)
+					e2e.Logf("Template %v created, arguments: %v, config: %+v", templateObj.Name, allArgs, config)
 
 					err = oc.SetNamespace(nsName).Run("new-app").Args(allArgs...).Execute()
 					o.Expect(err).NotTo(o.HaveOccurred())
@@ -110,7 +110,7 @@ var _ = g.Describe("[Feature:Performance][Serial][Slow] Load cluster", func() {
 					// Parse Pod file into struct
 					config := ParsePods(mkPath(pod.File))
 					// Check if environment variables are defined in CL config
-					if pod.Parameters == (ParameterConfigType{}) {
+					if pod.Parameters == nil {
 						e2e.Logf("Pod environment variables will not be modified.")
 					} else {
 						// Override environment variables for Pod using ConfigMap

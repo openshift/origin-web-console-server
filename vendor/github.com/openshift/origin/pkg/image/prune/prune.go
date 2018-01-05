@@ -20,15 +20,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/client-go/util/retry"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	kapiref "k8s.io/kubernetes/pkg/api/ref"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kapisext "k8s.io/kubernetes/pkg/apis/extensions"
-	"k8s.io/kubernetes/pkg/client/retry"
 
 	"github.com/openshift/origin/pkg/api/graph"
 	kubegraph "github.com/openshift/origin/pkg/api/kubegraph/nodes"
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
-	deploygraph "github.com/openshift/origin/pkg/apps/graph/nodes"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsgraph "github.com/openshift/origin/pkg/apps/graph/nodes"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
 	buildgraph "github.com/openshift/origin/pkg/build/graph/nodes"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
@@ -64,6 +65,7 @@ type pruneAlgorithm struct {
 	pruneOverSizeLimit bool
 	namespace          string
 	allImages          bool
+	pruneRegistry      bool
 }
 
 // ImageDeleter knows how to remove images from OpenShift.
@@ -118,6 +120,10 @@ type PrunerOptions struct {
 	PruneOverSizeLimit *bool
 	// AllImages considers all images for pruning, not just those pushed directly to the registry.
 	AllImages *bool
+	// PruneRegistry controls whether to both prune the API Objects in etcd and corresponding
+	// data in the registry, or just prune the API Object and defer on the corresponding data in
+	// the registry
+	PruneRegistry *bool
 	// Namespace to be pruned, if specified it should never remove Images.
 	Namespace string
 	// Images is the entire list of images in OpenShift. An image must be in this
@@ -141,7 +147,7 @@ type PrunerOptions struct {
 	// Deployments is the entire list of kube's deployments across all namespaces in the cluster.
 	Deployments *kapisext.DeploymentList
 	// DCs is the entire list of deployment configs across all namespaces in the cluster.
-	DCs *deployapi.DeploymentConfigList
+	DCs *appsapi.DeploymentConfigList
 	// RSs is the entire list of replica sets across all namespaces in the cluster.
 	RSs *kapisext.ReplicaSetList
 	// LimitRanges is a map of LimitRanges across namespaces, being keys in this map.
@@ -238,6 +244,10 @@ func NewPruner(options PrunerOptions) (Pruner, kerrors.Aggregate) {
 	algorithm.allImages = true
 	if options.AllImages != nil {
 		algorithm.allImages = *options.AllImages
+	}
+	algorithm.pruneRegistry = true
+	if options.PruneRegistry != nil {
+		algorithm.pruneRegistry = *options.PruneRegistry
 	}
 	algorithm.namespace = options.Namespace
 
@@ -550,7 +560,7 @@ func (p *pruner) addDaemonSetsToGraph(dss *kapisext.DaemonSetList) []error {
 		ds := &dss.Items[i]
 		desc := fmt.Sprintf("DaemonSet %s", getName(ds))
 		glog.V(4).Infof("Examining %s", desc)
-		dsNode := deploygraph.EnsureDaemonSetNode(p.g, ds)
+		dsNode := appsgraph.EnsureDaemonSetNode(p.g, ds)
 		errs = append(errs, p.addPodSpecToGraph(getRef(ds), &ds.Spec.Template.Spec, dsNode)...)
 	}
 
@@ -568,7 +578,7 @@ func (p *pruner) addDeploymentsToGraph(dmnts *kapisext.DeploymentList) []error {
 		d := &dmnts.Items[i]
 		ref := getRef(d)
 		glog.V(4).Infof("Examining %s", getKindName(ref))
-		dNode := deploygraph.EnsureDeploymentNode(p.g, d)
+		dNode := appsgraph.EnsureDeploymentNode(p.g, d)
 		errs = append(errs, p.addPodSpecToGraph(ref, &d.Spec.Template.Spec, dNode)...)
 	}
 
@@ -580,14 +590,14 @@ func (p *pruner) addDeploymentsToGraph(dmnts *kapisext.DeploymentList) []error {
 // Edges are added to the graph from each deployment config to the images
 // specified by its pod spec's list of containers, as long as the image is
 // managed by OpenShift.
-func (p *pruner) addDeploymentConfigsToGraph(dcs *deployapi.DeploymentConfigList) []error {
+func (p *pruner) addDeploymentConfigsToGraph(dcs *appsapi.DeploymentConfigList) []error {
 	var errs []error
 
 	for i := range dcs.Items {
 		dc := &dcs.Items[i]
 		ref := getRef(dc)
 		glog.V(4).Infof("Examining %s", getKindName(ref))
-		dcNode := deploygraph.EnsureDeploymentConfigNode(p.g, dc)
+		dcNode := appsgraph.EnsureDeploymentConfigNode(p.g, dc)
 		errs = append(errs, p.addPodSpecToGraph(getRef(dc), &dc.Spec.Template.Spec, dcNode)...)
 	}
 
@@ -605,7 +615,7 @@ func (p *pruner) addReplicaSetsToGraph(rss *kapisext.ReplicaSetList) []error {
 		rs := &rss.Items[i]
 		ref := getRef(rs)
 		glog.V(4).Infof("Examining %s", getKindName(ref))
-		rsNode := deploygraph.EnsureReplicaSetNode(p.g, rs)
+		rsNode := appsgraph.EnsureReplicaSetNode(p.g, rs)
 		errs = append(errs, p.addPodSpecToGraph(ref, &rs.Spec.Template.Spec, rsNode)...)
 	}
 
@@ -1002,19 +1012,20 @@ func (p *pruner) Prune(
 		return err
 	}
 
-	prunableComponents := getPrunableComponents(p.g, prunableImageIDs)
-
 	var errs []error
 
-	errs = append(errs, pruneImageComponents(p.g, p.registryClient, p.registryURL, prunableComponents, layerLinkPruner)...)
-	errs = append(errs, pruneBlobs(p.g, p.registryClient, p.registryURL, prunableComponents, blobPruner)...)
-	errs = append(errs, pruneManifests(p.g, p.registryClient, p.registryURL, prunableImageNodes, manifestPruner)...)
+	if p.algorithm.pruneRegistry {
+		prunableComponents := getPrunableComponents(p.g, prunableImageIDs)
+		errs = append(errs, pruneImageComponents(p.g, p.registryClient, p.registryURL, prunableComponents, layerLinkPruner)...)
+		errs = append(errs, pruneBlobs(p.g, p.registryClient, p.registryURL, prunableComponents, blobPruner)...)
+		errs = append(errs, pruneManifests(p.g, p.registryClient, p.registryURL, prunableImageNodes, manifestPruner)...)
 
-	if len(errs) > 0 {
-		// If we had any errors deleting layers, blobs, or manifest data from the registry,
-		// stop here and don't delete any images. This way, you can rerun prune and retry
-		// things that failed.
-		return kerrors.NewAggregate(errs)
+		if len(errs) > 0 {
+			// If we had any errors deleting layers, blobs, or manifest data from the registry,
+			// stop here and don't delete any images. This way, you can rerun prune and retry
+			// things that failed.
+			return kerrors.NewAggregate(errs)
+		}
 	}
 
 	errs = pruneImages(p.g, prunableImageNodes, imagePruner)
@@ -1291,7 +1302,7 @@ func getKindName(obj *kapi.ObjectReference) string {
 }
 
 func getRef(obj runtime.Object) *kapi.ObjectReference {
-	ref, err := kapiref.GetReference(kapi.Scheme, obj)
+	ref, err := kapiref.GetReference(legacyscheme.Scheme, obj)
 	if err != nil {
 		glog.Errorf("failed to get reference to object %T: %v", obj, err)
 		return nil

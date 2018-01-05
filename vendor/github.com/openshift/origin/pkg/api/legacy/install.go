@@ -9,13 +9,28 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 )
 
 var (
 	accessor = meta.NewAccessor()
 	coreV1   = schema.GroupVersion{Group: "", Version: "v1"}
 )
+
+func LegacyInstallAll(scheme *runtime.Scheme, registry *registered.APIRegistrationManager) {
+	InstallLegacyApps(scheme, registry)
+	InstallLegacyAuthorization(scheme, registry)
+	InstallLegacyBuild(scheme, registry)
+	InstallLegacyImage(scheme, registry)
+	InstallLegacyNetwork(scheme, registry)
+	InstallLegacyOAuth(scheme, registry)
+	InstallLegacyProject(scheme, registry)
+	InstallLegacyQuota(scheme, registry)
+	InstallLegacyRoute(scheme, registry)
+	InstallLegacySecurity(scheme, registry)
+	InstallLegacyTemplate(scheme, registry)
+	InstallLegacyUser(scheme, registry)
+}
 
 func InstallLegacy(group string, addToCore, addToCoreV1 func(*runtime.Scheme) error, rootScopedKinds sets.String, registry *registered.APIRegistrationManager, scheme *runtime.Scheme) {
 	interfacesFor := interfacesForGroup(group)
@@ -66,12 +81,12 @@ func interfacesForGroup(group string) func(version schema.GroupVersion) (*meta.V
 		switch version {
 		case coreV1:
 			return &meta.VersionInterfaces{
-				ObjectConvertor:  kapi.Scheme,
+				ObjectConvertor:  legacyscheme.Scheme,
 				MetadataAccessor: accessor,
 			}, nil
 
 		default:
-			g, _ := kapi.Registry.Group(group)
+			g, _ := legacyscheme.Registry.Group(group)
 			return nil, fmt.Errorf("unsupported storage version: %s (valid: %v)", version, g.GroupVersions)
 		}
 	}

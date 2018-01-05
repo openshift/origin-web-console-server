@@ -30,17 +30,18 @@ import (
 	"k8s.io/apimachinery/third_party/forked/golang/netutil"
 	restclient "k8s.io/client-go/rest"
 	kclientcmd "k8s.io/client-go/tools/clientcmd"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	kcmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 
+	buildapiv1 "github.com/openshift/api/build/v1"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
-	buildapiv1 "github.com/openshift/origin/pkg/build/apis/build/v1"
 	buildclientinternal "github.com/openshift/origin/pkg/build/client/internalversion"
 	buildclient "github.com/openshift/origin/pkg/build/generated/internalclientset/typed/build/internalversion"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/openshift/origin/pkg/generate/git"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 	oerrors "github.com/openshift/origin/pkg/util/errors"
 )
 
@@ -204,14 +205,14 @@ func (o *StartBuildOptions) Complete(f *clientcmd.Factory, in io.Reader, out, er
 
 	outputFormat := kcmdutil.GetFlagString(cmd, "output")
 	if outputFormat != "name" && outputFormat != "" {
-		return kcmdutil.UsageError(cmd, "Unsupported output format: %s", outputFormat)
+		return kcmdutil.UsageErrorf(cmd, "Unsupported output format: %s", outputFormat)
 	}
 	o.ShortOutput = outputFormat == "name"
 
 	switch {
 	case len(webhook) > 0:
 		if len(args) > 0 || len(buildName) > 0 || o.AsBinary {
-			return kcmdutil.UsageError(cmd, "The '--from-webhook' flag is incompatible with arguments and all '--from-*' flags")
+			return kcmdutil.UsageErrorf(cmd, "The '--from-webhook' flag is incompatible with arguments and all '--from-*' flags")
 		}
 		if !strings.HasSuffix(webhook, "/generic") {
 			fmt.Fprintf(errout, "warning: the '--from-webhook' flag should be called with a generic webhook URL.\n")
@@ -219,13 +220,13 @@ func (o *StartBuildOptions) Complete(f *clientcmd.Factory, in io.Reader, out, er
 		return nil
 
 	case len(args) != 1 && len(buildName) == 0:
-		return kcmdutil.UsageError(cmd, "Must pass a name of a build config or specify build name with '--from-build' flag.\nUse \"%s get bc\" to list all available build configs.", cmdFullName)
+		return kcmdutil.UsageErrorf(cmd, "Must pass a name of a build config or specify build name with '--from-build' flag.\nUse \"%s get bc\" to list all available build configs.", cmdFullName)
 	}
 
 	if len(buildName) != 0 && o.AsBinary {
 		// TODO: we should support this, it should be possible to clone a build to run again with new uploaded artifacts.
 		// Doing so requires introducing a new clonebinary endpoint.
-		return kcmdutil.UsageError(cmd, "Cannot use '--from-build' flag with binary builds")
+		return kcmdutil.UsageErrorf(cmd, "Cannot use '--from-build' flag with binary builds")
 	}
 
 	namespace, _, err := f.DefaultNamespace()
@@ -469,14 +470,15 @@ func (o *StartBuildOptions) RunListBuildWebHooks() error {
 		default:
 			continue
 		}
-		url, err := webhookClient.WebHookURL(o.Name, &t)
+		u, err := webhookClient.WebHookURL(o.Name, &t)
 		if err != nil {
 			if err != buildclientinternal.ErrTriggerIsNotAWebHook {
 				fmt.Fprintf(o.ErrOut, "error: unable to get webhook for %s: %v", o.Name, err)
 			}
 			continue
 		}
-		fmt.Fprintf(o.Out, "%s%s\n", hookType, url.String())
+		urlStr, _ := url.PathUnescape(u.String())
+		fmt.Fprintf(o.Out, "%s%s\n", hookType, urlStr)
 	}
 	return nil
 }
@@ -743,7 +745,7 @@ func (o *StartBuildOptions) RunStartBuildWebHook() error {
 		// In later server versions we return the created Build in the body.
 		var newBuild buildapi.Build
 		if err = json.Unmarshal(body, &buildapiv1.Build{}); err == nil {
-			if err = runtime.DecodeInto(kapi.Codecs.UniversalDecoder(), body, &newBuild); err != nil {
+			if err = runtime.DecodeInto(legacyscheme.Codecs.UniversalDecoder(), body, &newBuild); err != nil {
 				return err
 			}
 

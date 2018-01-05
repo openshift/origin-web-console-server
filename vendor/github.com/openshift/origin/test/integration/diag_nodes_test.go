@@ -7,10 +7,10 @@ import (
 	kapierror "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
-	clusterdiags "github.com/openshift/origin/pkg/diagnostics/cluster"
-	diagtype "github.com/openshift/origin/pkg/diagnostics/types"
+	clusterdiags "github.com/openshift/origin/pkg/oc/admin/diagnostics/diagnostics/cluster"
+	diagtype "github.com/openshift/origin/pkg/oc/admin/diagnostics/diagnostics/types"
 	testutil "github.com/openshift/origin/test/util"
 	testserver "github.com/openshift/origin/test/util/server"
 )

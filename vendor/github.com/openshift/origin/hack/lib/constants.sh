@@ -4,9 +4,9 @@
 
 readonly OS_GO_PACKAGE=github.com/openshift/origin
 
-readonly OS_BUILD_ENV_GOLANG="${OS_BUILD_ENV_GOLANG:-1.8}"
+readonly OS_BUILD_ENV_GOLANG="${OS_BUILD_ENV_GOLANG:-1.9}"
 readonly OS_BUILD_ENV_IMAGE="${OS_BUILD_ENV_IMAGE:-openshift/origin-release:golang-${OS_BUILD_ENV_GOLANG}}"
-readonly OS_REQUIRED_GO_VERSION=go1.8
+readonly OS_REQUIRED_GO_VERSION="go${OS_BUILD_ENV_GOLANG}"
 
 readonly OS_GOFLAGS_TAGS="include_gcs include_oss containers_image_openpgp"
 readonly OS_GOFLAGS_TAGS_LINUX_AMD64="gssapi"
@@ -27,13 +27,10 @@ readonly OS_OUTPUT_PKGDIR="${OS_OUTPUT}/pkgdir"
 
 readonly OS_SDN_COMPILE_TARGETS_LINUX=(
   pkg/network/sdn-cni-plugin
-  vendor/github.com/containernetworking/cni/plugins/ipam/host-local
-  vendor/github.com/containernetworking/cni/plugins/main/loopback
+  vendor/github.com/containernetworking/plugins/plugins/ipam/host-local
+  vendor/github.com/containernetworking/plugins/plugins/main/loopback
 )
 readonly OS_IMAGE_COMPILE_TARGETS_LINUX=(
-  cmd/dockerregistry
-  cmd/gitserver
-  vendor/k8s.io/kubernetes/cmd/hyperkube
   "${OS_SDN_COMPILE_TARGETS_LINUX[@]}"
 )
 readonly OS_SCRATCH_IMAGE_COMPILE_TARGETS_LINUX=(
@@ -45,8 +42,9 @@ readonly OS_IMAGE_COMPILE_BINARIES=("${OS_SCRATCH_IMAGE_COMPILE_TARGETS_LINUX[@]
 readonly OS_CROSS_COMPILE_TARGETS=(
   cmd/openshift
   cmd/oc
-  cmd/kubefed
+  cmd/openshift-diagnostics
   cmd/template-service-broker
+  vendor/k8s.io/kubernetes/cmd/hyperkube
 )
 readonly OS_CROSS_COMPILE_BINARIES=("${OS_CROSS_COMPILE_TARGETS[@]##*/}")
 
@@ -55,11 +53,11 @@ readonly OS_TEST_TARGETS=(
 )
 
 readonly OS_GOVET_BLACKLIST=(
-	"pkg/.*/client/clientset_generated/internalclientset/fake/clientset_generated.go:[0-9]+: literal copies lock value from fakePtr: github.com/openshift/origin/vendor/k8s.io/kubernetes/pkg/client/testing/core.Fake"
-	"pkg/.*/client/clientset_generated/release_v1_./fake/clientset_generated.go:[0-9]+: literal copies lock value from fakePtr: github.com/openshift/origin/vendor/k8s.io/kubernetes/pkg/client/testing/core.Fake"
-	"pkg/.*/clientset/internalclientset/fake/clientset_generated.go:[0-9]+: literal copies lock value from fakePtr: github.com/openshift/origin/vendor/k8s.io/kubernetes/pkg/client/testing/core.Fake"
-	"pkg/.*/clientset/release_v3_./fake/clientset_generated.go:[0-9]+: literal copies lock value from fakePtr: github.com/openshift/origin/vendor/k8s.io/kubernetes/pkg/client/testing/core.Fake"
+	"pkg/.*/generated/internalclientset/fake/clientset_generated.go:[0-9]+: literal copies lock value from fakePtr: github.com/openshift/origin/vendor/k8s.io/client-go/testing.Fake"
+	"pkg/.*/generated/clientset/fake/clientset_generated.go:[0-9]+: literal copies lock value from fakePtr: github.com/openshift/origin/vendor/k8s.io/client-go/testing.Fake"
+	"pkg/build/vendor/github.com/docker/engine-api/client/hijack.go:[0-9]+: assignment copies lock value to c: crypto/tls.Config contains sync.Once contains sync.Mutex"
 	"cmd/cluster-capacity/.*"
+	"pkg/build/builder/vendor/.*"
 )
 
 #If you update this list, be sure to get the images/origin/Dockerfile
@@ -73,24 +71,6 @@ readonly OPENSHIFT_BINARY_SYMLINKS=(
   openshift-manage-dockerfile
   openshift-extract-image-content
   origin
-  osc
-  oadm
-  osadm
-  kubectl
-  kubernetes
-  kubelet
-  kube-proxy
-  kube-apiserver
-  kube-controller-manager
-  kube-scheduler
-)
-readonly OPENSHIFT_BINARY_COPY=(
-  oadm
-  kubelet
-  kube-proxy
-  kube-apiserver
-  kube-controller-manager
-  kube-scheduler
 )
 readonly OC_BINARY_COPY=(
   kubectl
@@ -157,10 +137,8 @@ function os::build::ldflags() {
   ldflags+=($(os::build::ldflag "${OS_GO_PACKAGE}/vendor/k8s.io/client-go/pkg/version.gitCommit" "${KUBE_GIT_COMMIT}"))
   ldflags+=($(os::build::ldflag "${OS_GO_PACKAGE}/vendor/k8s.io/client-go/pkg/version.gitVersion" "${KUBE_GIT_VERSION}"))
   ldflags+=($(os::build::ldflag "${OS_GO_PACKAGE}/vendor/k8s.io/client-go/pkg/version.buildDate" "${buildDate}"))
-  ldflags+=($(os::build::ldflag "${OS_GO_PACKAGE}/vendor/k8s.io/client-go/pkg/version.gitTreeState" "clean"))
-  ldflags+=($(os::build::ldflag "${OS_GO_PACKAGE}/pkg/federation/kubefed.serverImageName" "${OS_BUILD_LDFLAGS_FEDERATION_SERVER_IMAGE_NAME}"))
-  ldflags+=($(os::build::ldflag "${OS_GO_PACKAGE}/pkg/federation/kubefed.defaultEtcdImage" "${OS_BUILD_LDFLAGS_FEDERATION_ETCD_IMAGE}
-"))
+  ldflags+=($(os::build::ldflag "${OS_GO_PACKAGE}/vendor/k8s.io/client-go/pkg/version.gitTreeState" "clean")
+)
 
   # The -ldflags parameter takes a single string, so join the output.
   echo "${ldflags[*]-}"
@@ -214,13 +192,13 @@ readonly -f os::util::list_go_src_dirs
 
 # os::util::list_go_deps outputs the list of dependencies for the project.
 function os::util::list_go_deps() {
-  go list -f '{{.ImportPath}}{{.Imports}}' ./pkg/... ./cmd/... | tr '[]' '  ' | 
+  go list -f '{{.ImportPath}}{{.Imports}}' ./pkg/... ./cmd/... | tr '[]' '  ' |
     grep -vE '^github.com/openshift/origin/cmd/(service-catalog|cluster-capacity)' |
-    sed -e 's|github.com/openshift/origin/vendor/||g' | 
+    sed -e 's|github.com/openshift/origin/vendor/||g' |
     sed -e 's|github.com/openshift/origin/pkg/build/vendor/||g'
 }
 
-# os::util::list_test_packages_under lists all packages containing Golang test files that we 
+# os::util::list_test_packages_under lists all packages containing Golang test files that we
 # want to run as unit tests under the given base dir in the source tree
 function os::util::list_test_packages_under() {
     local basedir=$*
@@ -250,9 +228,11 @@ function os::util::list_test_packages_under() {
       # we need to find all of the kubernetes test suites, excluding those we directly whitelisted before, the end-to-end suite, and
       # the go2idl tests which we currently do not support
       # etcd3 isn't supported yet and that test flakes upstream
+      # cmd wasn't done before using glide and constantly flakes
       find -L vendor/k8s.io/{apimachinery,apiserver,client-go,kube-aggregator,kubernetes} -not \( \
         \(                                                                                          \
           -path "${kubernetes_path}/staging"                                                        \
+          -o -path "${kubernetes_path}/cmd"                                                         \
           -o -path "${kubernetes_path}/test"                                                        \
           -o -path "${kubernetes_path}/cmd/libs/go2idl/client-gen/testoutput/testgroup/unversioned" \
           -o -path "${kubernetes_path}/pkg/storage/etcd3"                                           \
@@ -336,7 +316,6 @@ readonly OS_ALL_IMAGES=(
   openshift/origin-pod
   openshift/origin-deployer
   openshift/origin-docker-builder
-  openshift/origin-docker-registry
   openshift/origin-keepalived-ipfailover
   openshift/origin-sti-builder
   openshift/origin-haproxy-router
@@ -344,7 +323,6 @@ readonly OS_ALL_IMAGES=(
   openshift/origin-egress-router
   openshift/origin-egress-http-proxy
   openshift/origin-recycler
-  openshift/origin-gitserver
   openshift/origin-cluster-capacity
   openshift/origin-service-catalog
   openshift/origin-template-service-broker
@@ -368,7 +346,6 @@ function os::build::images() {
 
   # Link or copy image binaries to the appropriate locations.
   ln_or_cp "${OS_OUTPUT_BINPATH}/linux/amd64/hello-openshift" examples/hello-openshift/bin
-  ln_or_cp "${OS_OUTPUT_BINPATH}/linux/amd64/gitserver"       examples/gitserver/bin
 
   # determine the correct tag prefix
   tag_prefix="${OS_IMAGE_PREFIX:-"openshift/origin"}"
@@ -384,7 +361,6 @@ function os::build::images() {
 
   # images that depend on "${tag_prefix}-base"
   ( os::build::image "${tag_prefix}"                       images/origin ) &
-  ( os::build::image "${tag_prefix}-docker-registry"       images/dockerregistry ) &
   ( os::build::image "${tag_prefix}-egress-router"         images/egress/router ) &
   ( os::build::image "${tag_prefix}-egress-http-proxy"     images/egress/http-proxy ) &
   ( os::build::image "${tag_prefix}-federation"            images/federation ) &
@@ -394,7 +370,6 @@ function os::build::images() {
   # images that depend on "${tag_prefix}
   ( os::build::image "${tag_prefix}-haproxy-router"        images/router/haproxy ) &
   ( os::build::image "${tag_prefix}-keepalived-ipfailover" images/ipfailover/keepalived ) &
-  ( os::build::image "${tag_prefix}-gitserver"             examples/gitserver ) &
   ( os::build::image "${tag_prefix}-deployer"              images/deployer ) &
   ( os::build::image "${tag_prefix}-recycler"              images/recycler ) &
   ( os::build::image "${tag_prefix}-docker-builder"        images/builder/docker/docker-builder ) &

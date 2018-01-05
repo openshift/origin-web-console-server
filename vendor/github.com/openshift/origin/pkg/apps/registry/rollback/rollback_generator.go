@@ -3,9 +3,9 @@ package rollback
 import (
 	"fmt"
 
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 )
 
 // RollbackGenerator generates a new deployment config by merging a pair of deployment
@@ -19,7 +19,7 @@ type RollbackGenerator interface {
 	//
 	// Any image change triggers on the new config are disabled to prevent
 	// triggered deployments from immediately replacing the rollback.
-	GenerateRollback(from, to *deployapi.DeploymentConfig, spec *deployapi.DeploymentConfigRollbackSpec) (*deployapi.DeploymentConfig, error)
+	GenerateRollback(from, to *appsapi.DeploymentConfig, spec *appsapi.DeploymentConfigRollbackSpec) (*appsapi.DeploymentConfig, error)
 }
 
 // NewRollbackGenerator returns a new rollback generator.
@@ -29,16 +29,16 @@ func NewRollbackGenerator() RollbackGenerator {
 
 type rollbackGenerator struct{}
 
-func (g *rollbackGenerator) GenerateRollback(from, to *deployapi.DeploymentConfig, spec *deployapi.DeploymentConfigRollbackSpec) (*deployapi.DeploymentConfig, error) {
-	rollback := &deployapi.DeploymentConfig{}
+func (g *rollbackGenerator) GenerateRollback(from, to *appsapi.DeploymentConfig, spec *appsapi.DeploymentConfigRollbackSpec) (*appsapi.DeploymentConfig, error) {
+	rollback := &appsapi.DeploymentConfig{}
 
-	if err := kapi.Scheme.Convert(&from, &rollback, nil); err != nil {
+	if err := legacyscheme.Scheme.Convert(&from, &rollback, nil); err != nil {
 		return nil, fmt.Errorf("couldn't clone 'from' DeploymentConfig: %v", err)
 	}
 
 	// construct the candidate deploymentConfig based on the rollback spec
 	if spec.IncludeTemplate {
-		if err := kapi.Scheme.Convert(&to.Spec.Template, &rollback.Spec.Template, nil); err != nil {
+		if err := legacyscheme.Scheme.Convert(&to.Spec.Template, &rollback.Spec.Template, nil); err != nil {
 			return nil, fmt.Errorf("couldn't copy template to rollback:: %v", err)
 		}
 	}
@@ -52,20 +52,20 @@ func (g *rollbackGenerator) GenerateRollback(from, to *deployapi.DeploymentConfi
 	}
 
 	if spec.IncludeTriggers {
-		if err := kapi.Scheme.Convert(&to.Spec.Triggers, &rollback.Spec.Triggers, nil); err != nil {
+		if err := legacyscheme.Scheme.Convert(&to.Spec.Triggers, &rollback.Spec.Triggers, nil); err != nil {
 			return nil, fmt.Errorf("couldn't copy triggers to rollback:: %v", err)
 		}
 	}
 
 	if spec.IncludeStrategy {
-		if err := kapi.Scheme.Convert(&to.Spec.Strategy, &rollback.Spec.Strategy, nil); err != nil {
+		if err := legacyscheme.Scheme.Convert(&to.Spec.Strategy, &rollback.Spec.Strategy, nil); err != nil {
 			return nil, fmt.Errorf("couldn't copy strategy to rollback:: %v", err)
 		}
 	}
 
 	// Disable any image change triggers.
 	for _, trigger := range rollback.Spec.Triggers {
-		if trigger.Type == deployapi.DeploymentTriggerOnImageChange {
+		if trigger.Type == appsapi.DeploymentTriggerOnImageChange {
 			trigger.ImageChangeParams.Automatic = false
 		}
 	}

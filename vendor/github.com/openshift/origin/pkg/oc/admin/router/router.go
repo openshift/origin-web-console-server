@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	kcmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/serviceaccount"
@@ -27,9 +27,9 @@ import (
 	authapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	"github.com/openshift/origin/pkg/cmd/util/variable"
 	configcmd "github.com/openshift/origin/pkg/config/cmd"
 	"github.com/openshift/origin/pkg/generate/app"
@@ -496,7 +496,7 @@ func RunCmdRouter(f *clientcmd.Factory, cmd *cobra.Command, out, errout io.Write
 	case 1:
 		cfg.Name = args[0]
 	default:
-		return kcmdutil.UsageError(cmd, "You may pass zero or one arguments to provide a name for the router")
+		return kcmdutil.UsageErrorf(cmd, "You may pass zero or one arguments to provide a name for the router")
 	}
 	name := cfg.Name
 
@@ -504,12 +504,12 @@ func RunCmdRouter(f *clientcmd.Factory, cmd *cobra.Command, out, errout io.Write
 
 	if len(cfg.StatsUsername) > 0 {
 		if strings.Contains(cfg.StatsUsername, ":") {
-			return kcmdutil.UsageError(cmd, "username %s must not contain ':'", cfg.StatsUsername)
+			return kcmdutil.UsageErrorf(cmd, "username %s must not contain ':'", cfg.StatsUsername)
 		}
 	}
 
 	if len(cfg.Subdomain) > 0 && len(cfg.ForceSubdomain) > 0 {
-		return kcmdutil.UsageError(cmd, "only one of --subdomain, --force-subdomain can be specified")
+		return kcmdutil.UsageErrorf(cmd, "only one of --subdomain, --force-subdomain can be specified")
 	}
 
 	ports, err := app.ContainerPortsFromString(cfg.Ports)
@@ -550,7 +550,7 @@ func RunCmdRouter(f *clientcmd.Factory, cmd *cobra.Command, out, errout io.Write
 			glog.Fatal(err)
 		}
 		if len(remove) > 0 {
-			return kcmdutil.UsageError(cmd, "You may not pass negative labels in %q", cfg.Labels)
+			return kcmdutil.UsageErrorf(cmd, "You may not pass negative labels in %q", cfg.Labels)
 		}
 		label = valid
 	}
@@ -562,7 +562,7 @@ func RunCmdRouter(f *clientcmd.Factory, cmd *cobra.Command, out, errout io.Write
 			glog.Fatal(err)
 		}
 		if len(remove) > 0 {
-			return kcmdutil.UsageError(cmd, "You may not pass negative labels in selector %q", cfg.Selector)
+			return kcmdutil.UsageErrorf(cmd, "You may not pass negative labels in selector %q", cfg.Selector)
 		}
 		nodeSelector = valid
 	}
@@ -760,20 +760,20 @@ func RunCmdRouter(f *clientcmd.Factory, cmd *cobra.Command, out, errout io.Write
 		},
 	)
 
-	objects = append(objects, &deployapi.DeploymentConfig{
+	objects = append(objects, &appsapi.DeploymentConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   name,
 			Labels: label,
 		},
-		Spec: deployapi.DeploymentConfigSpec{
-			Strategy: deployapi.DeploymentStrategy{
-				Type:          deployapi.DeploymentStrategyTypeRolling,
-				RollingParams: &deployapi.RollingDeploymentStrategyParams{MaxUnavailable: intstr.FromString("25%")},
+		Spec: appsapi.DeploymentConfigSpec{
+			Strategy: appsapi.DeploymentStrategy{
+				Type:          appsapi.DeploymentStrategyTypeRolling,
+				RollingParams: &appsapi.RollingDeploymentStrategyParams{MaxUnavailable: intstr.FromString("25%")},
 			},
 			Replicas: cfg.Replicas,
 			Selector: label,
-			Triggers: []deployapi.DeploymentTriggerPolicy{
-				{Type: deployapi.DeploymentTriggerOnConfigChange},
+			Triggers: []appsapi.DeploymentTriggerPolicy{
+				{Type: appsapi.DeploymentTriggerOnConfigChange},
 			},
 			Template: &kapi.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: label},

@@ -11,15 +11,16 @@ package kubernetes
 
 import (
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"os"
 
 	"github.com/boltdb/bolt"
 
-	apierrors "k8s.io/kubernetes/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/pkg/api/v1"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
-	"k8s.io/kubernetes/pkg/client/restclient"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 )
 
 var (
@@ -66,9 +67,14 @@ func KubeBackupDbToSecret(db *bolt.DB) error {
 	// Get a backup
 	err = db.View(func(tx *bolt.Tx) error {
 		var backup bytes.Buffer
-		_, err := tx.WriteTo(&backup)
+
+		gz := gzip.NewWriter(&backup)
+		_, err := tx.WriteTo(gz)
 		if err != nil {
 			return fmt.Errorf("Unable to access database: %v", err)
+		}
+		if err := gz.Close(); err != nil {
+			return fmt.Errorf("Unable to close gzipped database: %v", err)
 		}
 
 		// Create a secret with backup
@@ -78,7 +84,7 @@ func KubeBackupDbToSecret(db *bolt.DB) error {
 		secret.APIVersion = "v1"
 		secret.ObjectMeta.Name = dbSecretName
 		secret.Data = map[string][]byte{
-			"heketi.db": backup.Bytes(),
+			"heketi.db.gz": backup.Bytes(),
 		}
 
 		// Submit secret

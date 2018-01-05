@@ -18,6 +18,7 @@ package manager
 import (
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path"
 	"strconv"
@@ -25,9 +26,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/cadvisor/accelerators"
 	"github.com/google/cadvisor/cache/memory"
 	"github.com/google/cadvisor/collector"
 	"github.com/google/cadvisor/container"
+	"github.com/google/cadvisor/container/containerd"
 	"github.com/google/cadvisor/container/crio"
 	"github.com/google/cadvisor/container/docker"
 	"github.com/google/cadvisor/container/raw"
@@ -45,10 +48,9 @@ import (
 	"github.com/google/cadvisor/utils/sysfs"
 	"github.com/google/cadvisor/version"
 
-	"net/http"
-
 	"github.com/golang/glog"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"k8s.io/utils/clock"
 )
 
 var globalHousekeepingInterval = flag.Duration("global_housekeeping_interval", 1*time.Minute, "Interval between global housekeepings")
@@ -102,6 +104,11 @@ type Manager interface {
 	// Get version information about different components we depend on.
 	GetVersionInfo() (*info.VersionInfo, error)
 
+	// GetFsInfoByFsUUID returns the information of the device having the
+	// specified filesystem uuid. If no such device with the UUID exists, this
+	// function will return the fs.ErrNoSuchDevice error.
+	GetFsInfoByFsUUID(uuid string) (v2.FsInfo, error)
+
 	// Get filesystem information for the filesystem that contains the given directory
 	GetDirFsInfo(dir string) (v2.FsInfo, error)
 
@@ -137,19 +144,25 @@ func New(memoryCache *memory.InMemoryCache, sysfs sysfs.SysFs, maxHousekeepingIn
 	}
 
 	// Detect the container we are running on.
-	selfContainer, err := cgroups.GetThisCgroupDir("cpu")
+	selfContainer, err := cgroups.GetOwnCgroupPath("cpu")
 	if err != nil {
 		return nil, err
 	}
 	glog.Infof("cAdvisor running in container: %q", selfContainer)
 
-	dockerStatus, err := docker.Status()
-	if err != nil {
+	var (
+		dockerStatus info.DockerStatus
+		rktPath      string
+	)
+	if tempDockerStatus, err := docker.Status(); err != nil {
 		glog.Warningf("Unable to connect to Docker: %v", err)
+	} else {
+		dockerStatus = tempDockerStatus
 	}
-	rktPath, err := rkt.RktPath()
-	if err != nil {
+	if tmpRktPath, err := rkt.RktPath(); err != nil {
 		glog.Warningf("unable to connect to Rkt api service: %v", err)
+	} else {
+		rktPath = tmpRktPath
 	}
 
 	crioClient, err := crio.Client()
@@ -201,6 +214,7 @@ func New(memoryCache *memory.InMemoryCache, sysfs sysfs.SysFs, maxHousekeepingIn
 		containerWatchers:        []watcher.ContainerWatcher{},
 		eventsChannel:            eventsChannel,
 		collectorHttpClient:      collectorHttpClient,
+		nvidiaManager:            &accelerators.NvidiaManager{},
 	}
 
 	machineInfo, err := machine.Info(sysfs, fsInfo, inHostNamespace)
@@ -246,6 +260,7 @@ type manager struct {
 	containerWatchers        []watcher.ContainerWatcher
 	eventsChannel            chan watcher.ContainerEvent
 	collectorHttpClient      *http.Client
+	nvidiaManager            accelerators.AcceleratorManager
 }
 
 // Start the container manager.
@@ -264,6 +279,11 @@ func (self *manager) Start() error {
 			return err
 		}
 		self.containerWatchers = append(self.containerWatchers, watcher)
+	}
+
+	err = containerd.Register(self, self.fsInfo, self.ignoreMetrics)
+	if err != nil {
+		glog.Warningf("Registration of the containerd container factory failed: %v", err)
 	}
 
 	err = crio.Register(self, self.fsInfo, self.ignoreMetrics)
@@ -298,6 +318,9 @@ func (self *manager) Start() error {
 		return nil
 	}
 
+	// Setup collection of nvidia GPU metrics if any of them are attached to the machine.
+	self.nvidiaManager.Setup()
+
 	// Create root and then recover all containers.
 	err = self.createContainer("/", watcher.Raw)
 	if err != nil {
@@ -327,6 +350,7 @@ func (self *manager) Start() error {
 }
 
 func (self *manager) Stop() error {
+	defer self.nvidiaManager.Destroy()
 	// Stop and wait on all quit channels.
 	for i, c := range self.quitChannels {
 		// Send the exit signal and wait on the thread to exit (by closing the channel).
@@ -690,28 +714,35 @@ func (self *manager) getRequestedContainers(containerName string, options v2.Req
 	default:
 		return containersMap, fmt.Errorf("invalid request type %q", options.IdType)
 	}
+	if options.MaxAge != nil {
+		// update stats for all containers in containersMap
+		var waitGroup sync.WaitGroup
+		waitGroup.Add(len(containersMap))
+		for _, container := range containersMap {
+			go func(cont *containerData) {
+				cont.OnDemandHousekeeping(*options.MaxAge)
+				waitGroup.Done()
+			}(container)
+		}
+		waitGroup.Wait()
+	}
 	return containersMap, nil
 }
 
 func (self *manager) GetDirFsInfo(dir string) (v2.FsInfo, error) {
-	dirDevice, err := self.fsInfo.GetDirFsDevice(dir)
+	device, err := self.fsInfo.GetDirFsDevice(dir)
 	if err != nil {
-		return v2.FsInfo{}, fmt.Errorf("error trying to get filesystem Device for dir %v: err: %v", dir, err)
+		return v2.FsInfo{}, fmt.Errorf("failed to get device for dir %q: %v", dir, err)
 	}
-	dirMountpoint, err := self.fsInfo.GetMountpointForDevice(dirDevice.Device)
-	if err != nil {
-		return v2.FsInfo{}, fmt.Errorf("error trying to get MountPoint for Root Device: %v, err: %v", dirDevice, err)
-	}
-	infos, err := self.GetFsInfo("")
+	return self.getFsInfoByDeviceName(device.Device)
+}
+
+func (self *manager) GetFsInfoByFsUUID(uuid string) (v2.FsInfo, error) {
+	device, err := self.fsInfo.GetDeviceInfoByFsUUID(uuid)
 	if err != nil {
 		return v2.FsInfo{}, err
 	}
-	for _, info := range infos {
-		if info.Mountpoint == dirMountpoint {
-			return info, nil
-		}
-	}
-	return v2.FsInfo{}, fmt.Errorf("did not find fs info for dir: %v", dir)
+	return self.getFsInfoByDeviceName(device.Device)
 }
 
 func (self *manager) GetFsInfo(label string) ([]v2.FsInfo, error) {
@@ -744,6 +775,7 @@ func (self *manager) GetFsInfo(label string) ([]v2.FsInfo, error) {
 		}
 
 		fi := v2.FsInfo{
+			Timestamp:  stats[0].Timestamp,
 			Device:     fs.Device,
 			Mountpoint: mountpoint,
 			Capacity:   fs.Limit,
@@ -791,6 +823,8 @@ func (m *manager) Exists(containerName string) bool {
 func (m *manager) GetProcessList(containerName string, options v2.RequestOptions) ([]v2.ProcessInfo, error) {
 	// override recursive. Only support single container listing.
 	options.Recursive = false
+	// override MaxAge.  ProcessList does not require updated stats.
+	options.MaxAge = nil
 	conts, err := m.getRequestedContainers(containerName, options)
 	if err != nil {
 		return nil, err
@@ -906,9 +940,18 @@ func (m *manager) createContainerLocked(containerName string, watchSource watche
 	}
 
 	logUsage := *logCadvisorUsage && containerName == m.cadvisorContainer
-	cont, err := newContainerData(containerName, m.memoryCache, handler, logUsage, collectorManager, m.maxHousekeepingInterval, m.allowDynamicHousekeeping)
+	cont, err := newContainerData(containerName, m.memoryCache, handler, logUsage, collectorManager, m.maxHousekeepingInterval, m.allowDynamicHousekeeping, clock.RealClock{})
 	if err != nil {
 		return err
+	}
+	devicesCgroupPath, err := handler.GetCgroupPath("devices")
+	if err != nil {
+		glog.Infof("Error getting devices cgroup path: %v", err)
+	} else {
+		cont.nvidiaCollector, err = m.nvidiaManager.GetCollector(devicesCgroupPath)
+		if err != nil {
+			glog.Infof("GPU metrics may be unavailable/incomplete for container %q: %v", cont.info.Name, err)
+		}
 	}
 
 	// Add collectors
@@ -1281,6 +1324,23 @@ func (m *manager) DebugInfo() map[string][]string {
 
 	debugInfo["Managed containers"] = lines
 	return debugInfo
+}
+
+func (self *manager) getFsInfoByDeviceName(deviceName string) (v2.FsInfo, error) {
+	mountPoint, err := self.fsInfo.GetMountpointForDevice(deviceName)
+	if err != nil {
+		return v2.FsInfo{}, fmt.Errorf("failed to get mount point for device %q: %v", deviceName, err)
+	}
+	infos, err := self.GetFsInfo("")
+	if err != nil {
+		return v2.FsInfo{}, err
+	}
+	for _, info := range infos {
+		if info.Mountpoint == mountPoint {
+			return info, nil
+		}
+	}
+	return v2.FsInfo{}, fmt.Errorf("cannot find filesystem info for device %q", deviceName)
 }
 
 func getVersionInfo() (*info.VersionInfo, error) {

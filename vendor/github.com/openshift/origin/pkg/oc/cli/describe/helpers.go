@@ -3,6 +3,7 @@ package describe
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"text/tabwriter"
@@ -14,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
-	"k8s.io/kubernetes/pkg/api"
+	api "k8s.io/kubernetes/pkg/apis/core"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
@@ -194,11 +195,11 @@ func webHooksDescribe(triggers []buildapi.BuildTriggerPolicy, name, namespace st
 
 		var urlStr string
 		webhookClient := buildinternalclient.NewWebhookURLClient(c, namespace)
-		url, err := webhookClient.WebHookURL(name, &trigger)
+		u, err := webhookClient.WebHookURL(name, &trigger)
 		if err != nil {
 			urlStr = fmt.Sprintf("<error: %s>", err.Error())
 		} else {
-			urlStr = url.String()
+			urlStr, _ = url.PathUnescape(u.String())
 		}
 
 		webHookDesc = append(webHookDesc,

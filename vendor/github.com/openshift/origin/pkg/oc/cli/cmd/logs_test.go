@@ -12,10 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	kcmd "k8s.io/kubernetes/pkg/kubectl/cmd"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
 	buildfake "github.com/openshift/origin/pkg/build/generated/internalclientset/fake"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 )
 
 // TestLogsFlagParity makes sure that our copied flags don't slip during rebases
@@ -163,7 +163,7 @@ func TestIsPipelineBuild(t *testing.T) {
 			isPipeline: false,
 		},
 		{
-			o:          &deployapi.DeploymentConfig{},
+			o:          &appsapi.DeploymentConfig{},
 			isPipeline: false,
 		},
 	}

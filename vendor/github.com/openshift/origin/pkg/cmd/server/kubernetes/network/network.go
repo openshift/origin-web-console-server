@@ -9,27 +9,28 @@ import (
 	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"k8s.io/api/core/v1"
+	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	utilwait "k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes/scheme"
 	kv1core "k8s.io/client-go/kubernetes/typed/core/v1"
-	kclientv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/kubernetes/pkg/apis/componentconfig"
-	kclientsetcorev1 "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/core/v1"
 	proxy "k8s.io/kubernetes/pkg/proxy"
+	"k8s.io/kubernetes/pkg/proxy/apis/kubeproxyconfig"
 	pconfig "k8s.io/kubernetes/pkg/proxy/config"
 	"k8s.io/kubernetes/pkg/proxy/healthcheck"
 	"k8s.io/kubernetes/pkg/proxy/iptables"
+	"k8s.io/kubernetes/pkg/proxy/metrics"
 	"k8s.io/kubernetes/pkg/proxy/userspace"
 	utildbus "k8s.io/kubernetes/pkg/util/dbus"
-	kexec "k8s.io/kubernetes/pkg/util/exec"
-	utilexec "k8s.io/kubernetes/pkg/util/exec"
 	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
 	utilnode "k8s.io/kubernetes/pkg/util/node"
 	utilsysctl "k8s.io/kubernetes/pkg/util/sysctl"
+	utilexec "k8s.io/utils/exec"
 
 	"github.com/openshift/origin/pkg/proxy/hybrid"
 	"github.com/openshift/origin/pkg/proxy/unidler"
@@ -69,9 +70,9 @@ func (c *NetworkConfig) RunProxy() {
 
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartRecordingToSink(&kv1core.EventSinkImpl{Interface: c.KubeClientset.CoreV1().Events("")})
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, kclientv1.EventSource{Component: "kube-proxy", Host: hostname})
+	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "kube-proxy", Host: hostname})
 
-	execer := kexec.New()
+	execer := utilexec.New()
 	dbus := utildbus.New()
 	iptInterface := utiliptables.New(execer, dbus, protocol)
 
@@ -80,14 +81,24 @@ func (c *NetworkConfig) RunProxy() {
 	var endpointsHandler pconfig.EndpointsHandler
 	var healthzServer *healthcheck.HealthzServer
 	if len(c.ProxyConfig.HealthzBindAddress) > 0 {
-		healthzServer = healthcheck.NewDefaultHealthzServer(c.ProxyConfig.HealthzBindAddress, 2*c.ProxyConfig.IPTables.SyncPeriod.Duration)
+		nodeRef := &v1.ObjectReference{
+			Kind:      "Node",
+			Name:      hostname,
+			UID:       types.UID(hostname),
+			Namespace: "",
+		}
+		healthzServer = healthcheck.NewDefaultHealthzServer(c.ProxyConfig.HealthzBindAddress, 2*c.ProxyConfig.IPTables.SyncPeriod.Duration, recorder, nodeRef)
 	}
 
 	switch c.ProxyConfig.Mode {
-	case componentconfig.ProxyModeIPTables:
+	case kubeproxyconfig.ProxyModeIPTables:
 		glog.V(0).Info("Using iptables Proxier.")
 		if bindAddr.Equal(net.IPv4zero) {
-			bindAddr = getNodeIP(c.ExternalKubeClientset.CoreV1(), hostname)
+			var err error
+			bindAddr, err = getNodeIP(c.ExternalKubeClientset.CoreV1(), hostname)
+			if err != nil {
+				glog.Fatalf("Unable to get a bind address: %v", err)
+			}
 		}
 		if c.ProxyConfig.IPTables.MasqueradeBit == nil {
 			// IPTablesMasqueradeBit must be specified or defaulted.
@@ -107,7 +118,7 @@ func (c *NetworkConfig) RunProxy() {
 			recorder,
 			healthzServer,
 		)
-		iptables.RegisterMetrics()
+		metrics.RegisterMetrics()
 
 		if err != nil {
 			glog.Fatalf("error: Could not initialize Kubernetes Proxy. You must run this process as root (and if containerized, in the host network namespace as privileged) to use the service proxy: %v", err)
@@ -118,7 +129,7 @@ func (c *NetworkConfig) RunProxy() {
 		// No turning back. Remove artifacts that might still exist from the userspace Proxier.
 		glog.V(0).Info("Tearing down userspace rules.")
 		userspace.CleanupLeftovers(iptInterface)
-	case componentconfig.ProxyModeUserspace:
+	case kubeproxyconfig.ProxyModeUserspace:
 		glog.V(0).Info("Using userspace Proxier.")
 		// This is a proxy.LoadBalancer which NewProxier needs but has methods we don't need for
 		// our config.EndpointsHandler.
@@ -227,17 +238,37 @@ func (c *NetworkConfig) RunProxy() {
 }
 
 // getNodeIP is copied from the upstream proxy config to retrieve the IP of a node.
-func getNodeIP(client kclientsetcorev1.CoreV1Interface, hostname string) net.IP {
-	var nodeIP net.IP
-	node, err := client.Nodes().Get(hostname, metav1.GetOptions{})
-	if err != nil {
-		glog.Warningf("Failed to retrieve node info: %v", err)
-		return nil
+func getNodeIP(client kv1core.CoreV1Interface, hostname string) (net.IP, error) {
+	var node *v1.Node
+	var nodeErr error
+
+	// We may beat the thread that causes the node object to be created,
+	// so if we can't get it, then we need to wait.
+	// This will wait 0, 2, 4, 8, ... 64 seconds, for a total of ~2 mins
+	nodeWaitBackoff := utilwait.Backoff{
+		Duration: 2 * time.Second,
+		Factor:   2,
+		Steps:    7,
 	}
-	nodeIP, err = utilnode.GetNodeHostIP(node)
-	if err != nil {
-		glog.Warningf("Failed to retrieve node IP: %v", err)
-		return nil
+	utilwait.ExponentialBackoff(nodeWaitBackoff, func() (bool, error) {
+		node, nodeErr = client.Nodes().Get(hostname, metav1.GetOptions{})
+		if nodeErr == nil {
+			return true, nil
+		} else if kapierrors.IsNotFound(nodeErr) {
+			glog.Warningf("waiting for node %q to be registered with master...", hostname)
+			return false, nil
+		} else {
+			return false, nodeErr
+		}
+	})
+	if nodeErr != nil {
+		return nil, fmt.Errorf("failed to retrieve node info (after waiting): %v", nodeErr)
 	}
-	return nodeIP
+
+	nodeIP, err := utilnode.GetNodeHostIP(node)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve node IP: %v", err)
+	}
+
+	return nodeIP, nil
 }

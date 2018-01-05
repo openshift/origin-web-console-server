@@ -8,11 +8,10 @@ import (
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/retry"
+	"k8s.io/client-go/util/retry"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
@@ -151,7 +150,6 @@ var _ = g.Describe("[Conformance][templates] templateinstance impersonation test
 						Name:      "template",
 						Namespace: "dummy",
 					},
-					Objects: []runtime.Object{},
 				},
 				// all the tests work with a templateinstance which is set up to
 				// impersonate edituser1
@@ -236,9 +234,8 @@ var _ = g.Describe("[Conformance][templates] templateinstance impersonation test
 		for _, test := range tests {
 			setUser(cli, test.user)
 
-			templateinstancecopy, err := kapi.Scheme.DeepCopy(dummytemplateinstance)
-			o.Expect(err).NotTo(o.HaveOccurred())
-			templateinstance, err := cli.TemplateClient().Template().TemplateInstances(cli.Namespace()).Create(templateinstancecopy.(*templateapi.TemplateInstance))
+			templateinstancecopy := dummytemplateinstance.DeepCopy()
+			templateinstance, err := cli.TemplateClient().Template().TemplateInstances(cli.Namespace()).Create(templateinstancecopy)
 
 			if !test.expectCreateSuccess {
 				o.Expect(err).To(o.HaveOccurred())
@@ -357,9 +354,8 @@ var _ = g.Describe("[Conformance][templates] templateinstance impersonation test
 		for _, test := range tests {
 			setUser(cli, test.user)
 
-			templateinstancecopy, err := kapi.Scheme.DeepCopy(dummytemplateinstance)
-			o.Expect(err).NotTo(o.HaveOccurred())
-			templateinstance, err := cli.AdminTemplateClient().Template().TemplateInstances(cli.Namespace()).Create(templateinstancecopy.(*templateapi.TemplateInstance))
+			templateinstancecopy := dummytemplateinstance.DeepCopy()
+			templateinstance, err := cli.AdminTemplateClient().Template().TemplateInstances(cli.Namespace()).Create(templateinstancecopy)
 			o.Expect(err).NotTo(o.HaveOccurred())
 
 			err = cli.TemplateClient().Template().TemplateInstances(cli.Namespace()).Delete(templateinstance.Name, nil)

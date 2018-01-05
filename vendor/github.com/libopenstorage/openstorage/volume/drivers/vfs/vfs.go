@@ -17,7 +17,9 @@ import (
 )
 
 const (
+	// Name of the driver
 	Name = "vfs"
+	// Type of the driver
 	Type = api.DriverType_DRIVER_TYPE_FILE
 )
 
@@ -26,6 +28,7 @@ type driver struct {
 	volume.BlockDriver
 	volume.SnapshotDriver
 	volume.StoreEnumerator
+	volume.StatsDriver
 }
 
 // Init Driver intialization.
@@ -35,6 +38,7 @@ func Init(params map[string]string) (volume.VolumeDriver, error) {
 		volume.BlockNotSupported,
 		volume.SnapshotNotSupported,
 		common.NewDefaultStoreEnumerator(Name, kvdb.Instance()),
+		volume.StatsNotSupported,
 	}, nil
 }
 
@@ -91,7 +95,7 @@ func (d *driver) Mount(volumeID string, mountpath string) error {
 		return err
 	}
 	if len(v.AttachPath) > 0 && len(v.AttachPath) > 0 {
-		return fmt.Errorf("Volume %q already mounted at %q", v.AttachPath[0])
+		return fmt.Errorf("Volume %q already mounted at %q", volumeID, v.AttachPath[0])
 	}
 	syscall.Unmount(mountpath, 0)
 	if err := syscall.Mount(
@@ -145,20 +149,8 @@ func (d *driver) Set(volumeID string, locator *api.VolumeLocator, spec *api.Volu
 	return d.UpdateVol(v)
 }
 
-func (d *driver) Stats(volumeID string, cumulative bool) (*api.Stats, error) {
-	return nil, volume.ErrNotSupported
-}
-
-func (d *driver) Alerts(volumeID string) (*api.Alerts, error) {
-	return nil, volume.ErrNotSupported
-}
-
 func (d *driver) Status() [][2]string {
 	return [][2]string{}
 }
 
 func (d *driver) Shutdown() {}
-
-func (d *driver) GetActiveRequests() (*api.ActiveRequests, error) {
-	return nil, nil
-}

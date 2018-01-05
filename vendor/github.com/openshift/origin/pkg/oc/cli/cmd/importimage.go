@@ -12,16 +12,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/watch"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	kcmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	kprinters "k8s.io/kubernetes/pkg/printers"
 
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	imageapiv1 "github.com/openshift/api/image/v1"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
-	imageapiv1 "github.com/openshift/origin/pkg/image/apis/image/v1"
 	imageclient "github.com/openshift/origin/pkg/image/generated/internalclientset/typed/image/internalversion"
 	"github.com/openshift/origin/pkg/oc/cli/describe"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 	quotautil "github.com/openshift/origin/pkg/quota/util"
 )
 
@@ -136,7 +137,7 @@ func (o *ImportImageOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, 
 // an import.
 func (o *ImportImageOptions) Validate(cmd *cobra.Command) error {
 	if len(o.Target) == 0 {
-		return kcmdutil.UsageError(cmd, "you must specify the name of an image stream")
+		return kcmdutil.UsageErrorf(cmd, "you must specify the name of an image stream")
 	}
 
 	targetRef, err := imageapi.ParseDockerImageReference(o.Target)
@@ -345,12 +346,12 @@ func (o *ImportImageOptions) createImageImport() (*imageapi.ImageStream, *imagea
 		stream, isi = o.newImageStream()
 		// ensure defaulting is applied by round trip converting
 		// TODO: convert to using versioned types.
-		external, err := kapi.Scheme.ConvertToVersion(stream, imageapiv1.SchemeGroupVersion)
+		external, err := legacyscheme.Scheme.ConvertToVersion(stream, imageapiv1.SchemeGroupVersion)
 		if err != nil {
 			return nil, nil, err
 		}
-		kapi.Scheme.Default(external)
-		internal, err := kapi.Scheme.ConvertToVersion(external, imageapi.SchemeGroupVersion)
+		legacyscheme.Scheme.Default(external)
+		internal, err := legacyscheme.Scheme.ConvertToVersion(external, imageapi.SchemeGroupVersion)
 		if err != nil {
 			return nil, nil, err
 		}

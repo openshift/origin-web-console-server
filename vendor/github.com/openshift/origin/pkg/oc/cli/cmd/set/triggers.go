@@ -16,22 +16,22 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kapi "k8s.io/kubernetes/pkg/api"
 	kapps "k8s.io/kubernetes/pkg/apis/apps"
 	kbatch "k8s.io/kubernetes/pkg/apis/batch"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kextensions "k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	kcmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
 
 	ometa "github.com/openshift/origin/pkg/api/meta"
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/openshift/origin/pkg/generate/app"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
 	triggerapi "github.com/openshift/origin/pkg/image/apis/image/v1/trigger"
 	"github.com/openshift/origin/pkg/image/trigger/annotations"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 )
 
 var (
@@ -220,7 +220,9 @@ func (o *TriggersOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, arg
 	}
 
 	mapper, _ := f.Object()
-	o.Builder = f.NewBuilder(!o.Local).
+	o.Builder = f.NewBuilder().
+		Internal().
+		LocalParam(o.Local).
 		ContinueOnError().
 		NamespaceParam(cmdNamespace).DefaultNamespace().
 		FilenameParam(explicit, &resource.FilenameOptions{Recursive: false, Filenames: o.Filenames}).
@@ -228,7 +230,7 @@ func (o *TriggersOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, arg
 
 	if !o.Local {
 		o.Builder = o.Builder.
-			SelectorParam(o.Selector).
+			LabelSelectorParam(o.Selector).
 			ResourceTypeOrNameArgs(o.All, args...)
 	}
 
@@ -563,13 +565,13 @@ func NewAnnotationTriggers(obj runtime.Object) (*TriggerDefinition, error) {
 }
 
 // NewDeploymentConfigTriggers creates a trigger definition from a deployment config.
-func NewDeploymentConfigTriggers(config *deployapi.DeploymentConfig) *TriggerDefinition {
+func NewDeploymentConfigTriggers(config *appsapi.DeploymentConfig) *TriggerDefinition {
 	t := &TriggerDefinition{}
 	for _, trigger := range config.Spec.Triggers {
 		switch trigger.Type {
-		case deployapi.DeploymentTriggerOnConfigChange:
+		case appsapi.DeploymentTriggerOnConfigChange:
 			t.ConfigChange = true
-		case deployapi.DeploymentTriggerOnImageChange:
+		case appsapi.DeploymentTriggerOnImageChange:
 			t.ImageChange = append(t.ImageChange, ImageChangeTrigger{
 				Auto:      trigger.ImageChangeParams.Automatic,
 				Names:     trigger.ImageChangeParams.ContainerNames,
@@ -627,7 +629,7 @@ func NewBuildConfigTriggers(config *buildapi.BuildConfig) *TriggerDefinition {
 // Apply writes a trigger definition back to an object.
 func (t *TriggerDefinition) Apply(obj runtime.Object) error {
 	switch c := obj.(type) {
-	case *deployapi.DeploymentConfig:
+	case *appsapi.DeploymentConfig:
 		if len(t.GitHubWebHooks) > 0 {
 			return fmt.Errorf("deployment configs do not support GitHub web hooks")
 		}
@@ -641,10 +643,10 @@ func (t *TriggerDefinition) Apply(obj runtime.Object) error {
 			return fmt.Errorf("deployment configs do not support Bitbucket web hooks")
 		}
 
-		existingTriggers := filterDeploymentTriggers(c.Spec.Triggers, deployapi.DeploymentTriggerOnConfigChange)
-		var triggers []deployapi.DeploymentTriggerPolicy
+		existingTriggers := filterDeploymentTriggers(c.Spec.Triggers, appsapi.DeploymentTriggerOnConfigChange)
+		var triggers []appsapi.DeploymentTriggerPolicy
 		if t.ConfigChange {
-			triggers = append(triggers, deployapi.DeploymentTriggerPolicy{Type: deployapi.DeploymentTriggerOnConfigChange})
+			triggers = append(triggers, appsapi.DeploymentTriggerPolicy{Type: appsapi.DeploymentTriggerOnConfigChange})
 		}
 		allNames := sets.NewString()
 		for _, container := range c.Spec.Template.Spec.Containers {
@@ -664,9 +666,9 @@ func (t *TriggerDefinition) Apply(obj runtime.Object) error {
 					strings.Join(allNames.List(), ", "),
 				)
 			}
-			triggers = append(triggers, deployapi.DeploymentTriggerPolicy{
-				Type: deployapi.DeploymentTriggerOnImageChange,
-				ImageChangeParams: &deployapi.DeploymentTriggerImageChangeParams{
+			triggers = append(triggers, appsapi.DeploymentTriggerPolicy{
+				Type: appsapi.DeploymentTriggerOnImageChange,
+				ImageChangeParams: &appsapi.DeploymentTriggerImageChangeParams{
 					Automatic: trigger.Auto,
 					From: kapi.ObjectReference{
 						Kind: "ImageStreamTag",
@@ -868,8 +870,8 @@ func filterBuildImageTriggers(src []buildapi.BuildTriggerPolicy, trigger ImageCh
 }
 
 // filterDeploymentTriggers returns only triggers that do not have one of the provided types.
-func filterDeploymentTriggers(src []deployapi.DeploymentTriggerPolicy, types ...deployapi.DeploymentTriggerType) []deployapi.DeploymentTriggerPolicy {
-	var dst []deployapi.DeploymentTriggerPolicy
+func filterDeploymentTriggers(src []appsapi.DeploymentTriggerPolicy, types ...appsapi.DeploymentTriggerType) []appsapi.DeploymentTriggerPolicy {
+	var dst []appsapi.DeploymentTriggerPolicy
 Outer:
 	for i := range src {
 		for _, t := range types {
@@ -896,9 +898,9 @@ func strategyTrigger(config *buildapi.BuildConfig) *ImageChangeTrigger {
 }
 
 // mergeDeployTriggers returns an array of DeploymentTriggerPolicies that have no duplicates.
-func mergeDeployTriggers(dst, src []deployapi.DeploymentTriggerPolicy) []deployapi.DeploymentTriggerPolicy {
+func mergeDeployTriggers(dst, src []appsapi.DeploymentTriggerPolicy) []appsapi.DeploymentTriggerPolicy {
 	// never return an empty map, because the triggers on a deployment config default when the map is empty
-	result := []deployapi.DeploymentTriggerPolicy{}
+	result := []appsapi.DeploymentTriggerPolicy{}
 	for _, current := range dst {
 		if findDeployTrigger(src, current) != -1 {
 			result = append(result, current)
@@ -914,7 +916,7 @@ func mergeDeployTriggers(dst, src []deployapi.DeploymentTriggerPolicy) []deploya
 
 // findDeployTrigger finds the position of a deployment trigger in the provided array, or -1 if no such
 // matching trigger is found.
-func findDeployTrigger(dst []deployapi.DeploymentTriggerPolicy, trigger deployapi.DeploymentTriggerPolicy) int {
+func findDeployTrigger(dst []appsapi.DeploymentTriggerPolicy, trigger appsapi.DeploymentTriggerPolicy) int {
 	for i := range dst {
 		if reflect.DeepEqual(dst[i], trigger) {
 			return i
@@ -965,7 +967,7 @@ func findBuildTrigger(dst []buildapi.BuildTriggerPolicy, trigger buildapi.BuildT
 func UpdateTriggersForObject(obj runtime.Object, fn func(*TriggerDefinition) error) (bool, error) {
 	// TODO: replace with a swagger schema based approach (identify pod template via schema introspection)
 	switch t := obj.(type) {
-	case *deployapi.DeploymentConfig:
+	case *appsapi.DeploymentConfig:
 		triggers := NewDeploymentConfigTriggers(t)
 		if err := fn(triggers); err != nil {
 			return true, err

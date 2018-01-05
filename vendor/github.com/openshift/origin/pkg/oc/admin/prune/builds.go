@@ -17,7 +17,7 @@ import (
 	buildclient "github.com/openshift/origin/pkg/build/client"
 	buildinternalclient "github.com/openshift/origin/pkg/build/generated/internalclientset"
 	"github.com/openshift/origin/pkg/build/prune"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 )
 
 const PruneBuildsRecommendedName = "builds"
@@ -85,7 +85,7 @@ func NewCmdPruneBuilds(f *clientcmd.Factory, parentName, name string, out io.Wri
 // which can be validated and used for pruning builds.
 func (o *PruneBuildsOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, args []string, out io.Writer) error {
 	if len(args) > 0 {
-		return kcmdutil.UsageError(cmd, "no arguments are allowed to this command")
+		return kcmdutil.UsageErrorf(cmd, "no arguments are allowed to this command")
 	}
 
 	o.Namespace = metav1.NamespaceAll

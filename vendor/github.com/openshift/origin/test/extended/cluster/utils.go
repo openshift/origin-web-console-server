@@ -13,15 +13,14 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/fatih/structs"
-
-	exutil "github.com/openshift/origin/test/extended/util"
+	kapiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	kapiv1 "k8s.io/kubernetes/pkg/api/v1"
-	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	kclientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2e "k8s.io/kubernetes/test/e2e/framework"
+
+	exutil "github.com/openshift/origin/test/extended/util"
 )
 
 const maxRetries = 5
@@ -164,10 +163,9 @@ func firstLowercase(s string) string {
 }
 
 // convertVariables takes our loaded struct and converts it into a map[string]string.
-func convertVariablesToMap(params ParameterConfigType) map[string]string {
-	m := structs.Map(params)
+func convertVariablesToMap(params map[string]interface{}) map[string]string {
 	values := make(map[string]string)
-	for k, v := range m {
+	for k, v := range params {
 		k = firstLowercase(k)
 		if v != 0 && v != "" {
 			if _, ok := v.(int); ok {
@@ -180,9 +178,8 @@ func convertVariablesToMap(params ParameterConfigType) map[string]string {
 	return values
 }
 
-func convertVariablesToString(params ParameterConfigType) (args []string) {
-	m := structs.Map(params)
-	for k, v := range m {
+func convertVariablesToString(params map[string]interface{}) (args []string) {
+	for k, v := range params {
 		k = strings.ToUpper(k)
 		if v != 0 && v != "" {
 			args = append(args, "-p")
@@ -193,7 +190,7 @@ func convertVariablesToString(params ParameterConfigType) (args []string) {
 }
 
 // InjectConfigMap modifies the pod struct and replaces the environment variables.
-func InjectConfigMap(c kclientset.Interface, ns string, vars ParameterConfigType, config kapiv1.Pod) string {
+func InjectConfigMap(c kclientset.Interface, ns string, vars map[string]interface{}, config kapiv1.Pod) string {
 	configMapName := ns + "-configmap"
 	freshConfigVars := convertVariablesToMap(vars)
 	dirtyConfigVars := getClusterData(c, freshConfigVars)

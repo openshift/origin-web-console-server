@@ -9,17 +9,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
 	g "github.com/onsi/ginkgo"
 
+	authorizationapiv1 "k8s.io/api/authorization/v1"
+	kapiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apiserver/pkg/storage/names"
+	kclientset "k8s.io/client-go/kubernetes"
 	clientcmd "k8s.io/client-go/tools/clientcmd"
-	kapiv1 "k8s.io/kubernetes/pkg/api/v1"
-	authorizationapiv1 "k8s.io/kubernetes/pkg/apis/authorization/v1"
-	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	kinternalclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	e2e "k8s.io/kubernetes/test/e2e/framework"
 
@@ -585,5 +586,7 @@ func (c *CLI) Execute() error {
 
 // FatalErr exits the test in case a fatal error has occurred.
 func FatalErr(msg interface{}) {
+	// the path that leads to this being called isn't always clear...
+	fmt.Fprintln(g.GinkgoWriter, string(debug.Stack()))
 	e2e.Failf("%v", msg)
 }

@@ -13,13 +13,13 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 
+	"k8s.io/api/core/v1"
+	extensions "k8s.io/api/extensions/v1beta1"
 	kapierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
-	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
-	extensions "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	clientset "k8s.io/client-go/kubernetes"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/client/conditions"
 	e2e "k8s.io/kubernetes/test/e2e/framework"
 
@@ -59,13 +59,20 @@ var _ = g.Describe("[Feature:Prometheus][Conformance] Prometheus", func() {
 				p := expfmt.TextParser{}
 				metrics, err = p.TextToMetricFamilies(bytes.NewBufferString(results))
 				o.Expect(err).NotTo(o.HaveOccurred())
-
+				// original field in 2.0.0-beta
 				counts := findCountersWithLabels(metrics["tsdb_samples_appended_total"], labels{})
 				if len(counts) != 0 && counts[0] > 0 {
 					success = true
 					break
 				}
+				// 2.0.0-rc.0
 				counts = findCountersWithLabels(metrics["tsdb_head_samples_appended_total"], labels{})
+				if len(counts) != 0 && counts[0] > 0 {
+					success = true
+					break
+				}
+				// 2.0.0-rc.2
+				counts = findCountersWithLabels(metrics["prometheus_tsdb_head_samples_appended_total"], labels{})
 				if len(counts) != 0 && counts[0] > 0 {
 					success = true
 					break
@@ -73,7 +80,7 @@ var _ = g.Describe("[Feature:Prometheus][Conformance] Prometheus", func() {
 				time.Sleep(time.Second)
 				continue
 			}
-			o.Expect(success).To(o.BeTrue(), fmt.Sprintf("Did not find tsdb_samples_appended_total or tsdb_head_samples_appended_total in:\n%#v,", metrics))
+			o.Expect(success).To(o.BeTrue(), fmt.Sprintf("Did not find tsdb_samples_appended_total, tsdb_head_samples_appended_total, or prometheus_tsdb_head_samples_appended_total in:\n%#v,", metrics))
 
 			g.By("verifying the oauth-proxy reports a 403 on the root URL")
 			err := expectURLStatusCodeExec(ns, execPodName, fmt.Sprintf("https://%s:%d", host, statsPort), 403)
@@ -303,8 +310,12 @@ func bringUpPrometheusFromTemplate(oc *exutil.CLI) (ns, host, bearerToken string
 		stdout, _, err := oc.WithoutNamespace().Run("process").Args("-f", configPath).Outputs()
 		o.Expect(err).NotTo(o.HaveOccurred())
 		err = oc.WithoutNamespace().AsAdmin().Run("create").Args("-f", "-").InputString(stdout).Execute()
-		o.Expect(err).NotTo(o.HaveOccurred())
-		e2e.WaitForDeploymentStatus(oc.AdminKubeClient(), &extensions.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "prometheus", Namespace: "kube-system"}})
+		// rather than parse the oc err output from valid situations like the object already exist, just logging
+		// the error and continue ... if something else is up, it will be caught later down the line
+		if err != nil {
+			fmt.Fprintf(g.GinkgoWriter, "test continuing, but create on the prometheus template resulted in: %#v", err)
+		}
+		e2e.WaitForDeploymentComplete(oc.AdminKubeClient(), &extensions.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "prometheus", Namespace: "kube-system"}})
 	}
 
 	waitForServiceAccountInNamespace(oc.AdminKubeClient(), "kube-system", "prometheus", 2*time.Minute)

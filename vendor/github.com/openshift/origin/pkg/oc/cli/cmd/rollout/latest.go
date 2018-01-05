@@ -15,10 +15,10 @@ import (
 	kcmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	appsclientinternal "github.com/openshift/origin/pkg/apps/generated/internalclientset/typed/apps/internalversion"
-	deployutil "github.com/openshift/origin/pkg/apps/util"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	appsutil "github.com/openshift/origin/pkg/apps/util"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 )
 
 var (
@@ -68,7 +68,7 @@ func NewCmdRolloutLatest(fullName string, f *clientcmd.Factory, out io.Writer) *
 			kcmdutil.CheckErr(err)
 
 			if err := opts.Validate(); err != nil {
-				kcmdutil.CheckErr(kcmdutil.UsageError(cmd, err.Error()))
+				kcmdutil.CheckErr(kcmdutil.UsageErrorf(cmd, err.Error()))
 			}
 
 			err = opts.RunRolloutLatest()
@@ -107,7 +107,8 @@ func (o *RolloutLatestOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command
 	o.appsClient = appsClient.Apps()
 
 	o.mapper, o.typer = f.Object()
-	o.infos, err = f.NewBuilder(true).
+	o.infos, err = f.NewBuilder().
+		Internal().
 		ContinueOnError().
 		NamespaceParam(namespace).
 		ResourceNames("deploymentconfigs", args[0]).
@@ -133,7 +134,7 @@ func (o RolloutLatestOptions) Validate() error {
 
 func (o RolloutLatestOptions) RunRolloutLatest() error {
 	info := o.infos[0]
-	config, ok := info.Object.(*deployapi.DeploymentConfig)
+	config, ok := info.Object.(*appsapi.DeploymentConfig)
 	if !ok {
 		return fmt.Errorf("%s is not a deployment config", info.Name)
 	}
@@ -144,13 +145,13 @@ func (o RolloutLatestOptions) RunRolloutLatest() error {
 		return fmt.Errorf("cannot deploy a paused deployment config")
 	}
 
-	deploymentName := deployutil.LatestDeploymentNameForConfig(config)
+	deploymentName := appsutil.LatestDeploymentNameForConfig(config)
 	deployment, err := o.kc.Core().ReplicationControllers(config.Namespace).Get(deploymentName, metav1.GetOptions{})
 	switch {
 	case err == nil:
 		// Reject attempts to start a concurrent deployment.
-		if !deployutil.IsTerminatedDeployment(deployment) {
-			status := deployutil.DeploymentStatusFor(deployment)
+		if !appsutil.IsTerminatedDeployment(deployment) {
+			status := appsutil.DeploymentStatusFor(deployment)
 			return fmt.Errorf("#%d is already in progress (%s).", config.Status.LatestVersion, status)
 		}
 	case !kerrors.IsNotFound(err):
@@ -159,7 +160,7 @@ func (o RolloutLatestOptions) RunRolloutLatest() error {
 
 	dc := config
 	if !o.DryRun {
-		request := &deployapi.DeploymentRequest{
+		request := &appsapi.DeploymentRequest{
 			Name:   config.Name,
 			Latest: !o.again,
 			Force:  true,

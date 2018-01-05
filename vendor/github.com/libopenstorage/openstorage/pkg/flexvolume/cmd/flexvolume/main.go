@@ -10,7 +10,7 @@ import (
 )
 
 type appEnv struct {
-	OpenstorageAddress string `env:"OPENSTORAGE_ADDRESS,default=0.0.0.0:2345"`
+	OpenstorageAddress string `env:"OPENSTORAGE_ADDRESS,default=0.0.0.0:9005"`
 }
 
 func main() {
@@ -56,7 +56,7 @@ func do(appEnvObj interface{}) error {
 			if err != nil {
 				return err
 			}
-			return client.Detach(args[0])
+			return client.Detach(args[0], false)
 		}),
 	}
 

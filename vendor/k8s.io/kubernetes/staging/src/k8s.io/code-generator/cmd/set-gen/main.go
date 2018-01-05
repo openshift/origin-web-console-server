@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// set-gen is an example usage of go2idl.
+// set-gen is an example usage of gengo.
 //
 // Structs in the input directories with the below line in their comments will
 // have sets generated for them.
@@ -37,11 +37,10 @@ import (
 func main() {
 	arguments := args.Default()
 
-	// Override defaults. These are Kubernetes specific input and output
-	// locations.
+	// Override defaults.
+	arguments.GoHeaderFilePath = filepath.Join(args.DefaultSourceTree(), "k8s.io/kubernetes/hack/boilerplate/boilerplate.go.txt")
 	arguments.InputDirs = []string{"k8s.io/kubernetes/pkg/util/sets/types"}
 	arguments.OutputPackagePath = "k8s.io/apimachinery/pkg/util/sets"
-	arguments.GoHeaderFilePath = filepath.Join(args.DefaultSourceTree(), "k8s.io/kubernetes/hack/boilerplate/boilerplate.go.txt")
 
 	if err := arguments.Execute(
 		generators.NameSystems(),

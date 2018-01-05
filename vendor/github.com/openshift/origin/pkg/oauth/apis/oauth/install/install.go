@@ -5,7 +5,7 @@ import (
 	"k8s.io/apimachinery/pkg/apimachinery/registered"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 
 	"github.com/openshift/origin/pkg/api/legacy"
 	oauthapi "github.com/openshift/origin/pkg/oauth/apis/oauth"
@@ -13,11 +13,8 @@ import (
 )
 
 func init() {
-	legacy.InstallLegacy(oauthapi.GroupName, oauthapi.AddToSchemeInCoreGroup, oauthapiv1.AddToSchemeInCoreGroup,
-		sets.NewString("OAuthAccessToken", "OAuthAuthorizeToken", "OAuthClient", "OAuthClientAuthorization"),
-		kapi.Registry, kapi.Scheme,
-	)
-	Install(kapi.GroupFactoryRegistry, kapi.Registry, kapi.Scheme)
+	legacy.InstallLegacyOAuth(legacyscheme.Scheme, legacyscheme.Registry)
+	Install(legacyscheme.GroupFactoryRegistry, legacyscheme.Registry, legacyscheme.Scheme)
 }
 
 // Install registers the API group and adds types to a scheme

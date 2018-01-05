@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/docker/distribution"
 	"github.com/docker/distribution/configuration"
 	ctxu "github.com/docker/distribution/context"
@@ -38,6 +37,7 @@ import (
 	"github.com/docker/libtrust"
 	"github.com/garyburd/redigo/redis"
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 )
 
@@ -100,7 +100,7 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 	app.register(v2.RouteNameBase, func(ctx *Context, r *http.Request) http.Handler {
 		return http.HandlerFunc(apiBase)
 	})
-	app.register(v2.RouteNameManifest, imageManifestDispatcher)
+	app.register(v2.RouteNameManifest, manifestDispatcher)
 	app.register(v2.RouteNameCatalog, catalogDispatcher)
 	app.register(v2.RouteNameTags, tagsDispatcher)
 	app.register(v2.RouteNameBlob, blobDispatcher)
@@ -211,6 +211,10 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 		ctxu.GetLogger(app).Infof("backend redirection disabled")
 	} else {
 		options = append(options, storage.EnableRedirect)
+	}
+
+	if !config.Validation.Enabled {
+		config.Validation.Enabled = !config.Validation.Disabled
 	}
 
 	// configure validation
@@ -401,38 +405,18 @@ func (app *App) RegisterHealthChecks(healthRegistries ...*health.Registry) {
 	}
 }
 
-type customAccessRecordsFunc func(*http.Request) []auth.Access
-
-func NoCustomAccessRecords(*http.Request) []auth.Access {
-	return []auth.Access{}
-}
-
-func NameNotRequired(*http.Request) bool {
-	return false
-}
-
-func NameRequired(*http.Request) bool {
-	return true
-}
-
 // register a handler with the application, by route name. The handler will be
 // passed through the application filters and context will be constructed at
 // request time.
 func (app *App) register(routeName string, dispatch dispatchFunc) {
-	app.RegisterRoute(app.router.GetRoute(routeName), dispatch, app.nameRequired, NoCustomAccessRecords)
-}
 
-func (app *App) RegisterRoute(route *mux.Route, dispatch dispatchFunc, nameRequired nameRequiredFunc, accessRecords customAccessRecordsFunc) {
 	// TODO(stevvooe): This odd dispatcher/route registration is by-product of
 	// some limitations in the gorilla/mux router. We are using it to keep
 	// routing consistent between the client and server, but we may want to
 	// replace it with manual routing and structure-based dispatch for better
 	// control over the request execution.
-	route.Handler(app.dispatcher(dispatch, nameRequired, accessRecords))
-}
 
-func (app *App) NewRoute() *mux.Route {
-	return app.router.NewRoute()
+	app.router.GetRoute(routeName).Handler(app.dispatcher(dispatch))
 }
 
 // configureEvents prepares the event sink for action.
@@ -612,24 +596,19 @@ func (app *App) configureSecret(configuration *configuration.Configuration) {
 func (app *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close() // ensure that request body is always closed.
 
-	// Instantiate an http context here so we can track the error codes
-	// returned by the request router.
-	ctx := defaultContextManager.context(app, w, r)
+	// Prepare the context with our own little decorations.
+	ctx := r.Context()
+	ctx = ctxu.WithRequest(ctx, r)
+	ctx, w = ctxu.WithResponseWriter(ctx, w)
+	ctx = ctxu.WithLogger(ctx, ctxu.GetRequestLogger(ctx))
+	r = r.WithContext(ctx)
 
 	defer func() {
 		status, ok := ctx.Value("http.response.status").(int)
 		if ok && status >= 200 && status <= 399 {
-			ctxu.GetResponseLogger(ctx).Infof("response completed")
+			ctxu.GetResponseLogger(r.Context()).Infof("response completed")
 		}
 	}()
-	defer defaultContextManager.release(ctx)
-
-	// NOTE(stevvooe): Total hack to get instrumented responsewriter from context.
-	var err error
-	w, err = ctxu.GetResponseWriter(ctx)
-	if err != nil {
-		ctxu.GetLogger(ctx).Warnf("response writer not found in context")
-	}
 
 	// Set a header with the Docker Distribution API Version for all responses.
 	w.Header().Add("Docker-Distribution-API-Version", "registry/2.0")
@@ -647,7 +626,7 @@ type dispatchFunc func(ctx *Context, r *http.Request) http.Handler
 
 // dispatcher returns a handler that constructs a request specific context and
 // handler, using the dispatch factory function.
-func (app *App) dispatcher(dispatch dispatchFunc, nameRequired nameRequiredFunc, accessRecords customAccessRecordsFunc) http.Handler {
+func (app *App) dispatcher(dispatch dispatchFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for headerName, headerValues := range app.Config.HTTP.Headers {
 			for _, value := range headerValues {
@@ -657,16 +636,19 @@ func (app *App) dispatcher(dispatch dispatchFunc, nameRequired nameRequiredFunc,
 
 		context := app.context(w, r)
 
-		if err := app.authorized(w, r, context, nameRequired, accessRecords(r)); err != nil {
-			ctxu.GetLogger(context).Errorf("error authorizing context: %v", err)
+		if err := app.authorized(w, r, context); err != nil {
+			ctxu.GetLogger(context).Warnf("error authorizing context: %v", err)
 			return
 		}
 
 		// Add username to request logging
 		context.Context = ctxu.WithLogger(context.Context, ctxu.GetLogger(context.Context, auth.UserNameKey))
 
-		if nameRequired(r) {
-			nameRef, err := reference.ParseNamed(getName(context))
+		// sync up context on the request.
+		r = r.WithContext(context)
+
+		if app.nameRequired(r) {
+			nameRef, err := reference.WithName(getName(context))
 			if err != nil {
 				ctxu.GetLogger(context).Errorf("error parsing reference from context: %v", err)
 				context.Errors = append(context.Errors, distribution.ErrRepositoryNameInvalid{
@@ -772,7 +754,7 @@ func (app *App) logError(context context.Context, errors errcode.Errors) {
 // context constructs the context object for the application. This only be
 // called once per request.
 func (app *App) context(w http.ResponseWriter, r *http.Request) *Context {
-	ctx := defaultContextManager.context(app, w, r)
+	ctx := r.Context()
 	ctx = ctxu.WithVars(ctx, r)
 	ctx = ctxu.WithLogger(ctx, ctxu.GetLogger(ctx,
 		"vars.name",
@@ -800,7 +782,7 @@ func (app *App) context(w http.ResponseWriter, r *http.Request) *Context {
 // authorized checks if the request can proceed with access to the requested
 // repository. If it succeeds, the context may access the requested
 // repository. An error will be returned if access is not available.
-func (app *App) authorized(w http.ResponseWriter, r *http.Request, context *Context, nameRequired nameRequiredFunc, customAccessRecords []auth.Access) error {
+func (app *App) authorized(w http.ResponseWriter, r *http.Request, context *Context) error {
 	ctxu.GetLogger(context).Debug("authorizing request")
 	repo := getName(context)
 
@@ -809,7 +791,6 @@ func (app *App) authorized(w http.ResponseWriter, r *http.Request, context *Cont
 	}
 
 	var accessRecords []auth.Access
-	accessRecords = append(accessRecords, customAccessRecords...)
 
 	if repo != "" {
 		accessRecords = appendAccessRecords(accessRecords, r.Method, repo)
@@ -818,10 +799,9 @@ func (app *App) authorized(w http.ResponseWriter, r *http.Request, context *Cont
 			// access to the source repository.
 			accessRecords = appendAccessRecords(accessRecords, "GET", fromRepo)
 		}
-	}
-	if len(accessRecords) == 0 {
+	} else {
 		// Only allow the name not to be set on the base route.
-		if nameRequired(r) {
+		if app.nameRequired(r) {
 			// For this to be properly secured, repo must always be set for a
 			// resource that may make a modification. The only condition under
 			// which name is not set and we still allow access is when the
@@ -876,13 +856,14 @@ func (app *App) eventBridge(ctx *Context, r *http.Request) notifications.Listene
 	return notifications.NewBridge(ctx.urlBuilder, app.events.source, actor, request, app.events.sink)
 }
 
-type nameRequiredFunc func(*http.Request) bool
-
 // nameRequired returns true if the route requires a name.
 func (app *App) nameRequired(r *http.Request) bool {
 	route := mux.CurrentRoute(r)
+	if route == nil {
+		return true
+	}
 	routeName := route.GetName()
-	return route == nil || (routeName != v2.RouteNameBase && routeName != v2.RouteNameCatalog)
+	return routeName != v2.RouteNameBase && routeName != v2.RouteNameCatalog
 }
 
 // apiBase implements a simple yes-man for doing overall checks against the
@@ -921,12 +902,10 @@ func appendAccessRecords(records []auth.Access, method string, repo string) []au
 				Action:   "push",
 			})
 	case "DELETE":
-		// DELETE access requires full admin rights, which is represented
-		// as "*". This may not be ideal.
 		records = append(records,
 			auth.Access{
 				Resource: resource,
-				Action:   "*",
+				Action:   "delete",
 			})
 	}
 	return records

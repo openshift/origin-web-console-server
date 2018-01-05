@@ -2,14 +2,17 @@ package admission
 
 import (
 	"k8s.io/apiserver/pkg/admission"
+	"k8s.io/apiserver/pkg/admission/initializer"
 	kauthorizer "k8s.io/apiserver/pkg/authorization/authorizer"
 	restclient "k8s.io/client-go/rest"
 	kinternalinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
 	kubeapiserveradmission "k8s.io/kubernetes/pkg/kubeapiserver/admission"
 	"k8s.io/kubernetes/pkg/quota"
 
-	authorizationclient "github.com/openshift/origin/pkg/authorization/generated/internalclientset"
-	buildclient "github.com/openshift/origin/pkg/build/generated/internalclientset"
+	authorizationclient "github.com/openshift/client-go/authorization/clientset/versioned"
+	buildclient "github.com/openshift/client-go/build/clientset/versioned"
+	userclient "github.com/openshift/client-go/user/clientset/versioned"
+	userinformer "github.com/openshift/client-go/user/informers/externalversions"
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
 	imageclient "github.com/openshift/origin/pkg/image/generated/internalclientset"
@@ -19,8 +22,6 @@ import (
 	quotaclient "github.com/openshift/origin/pkg/quota/generated/internalclientset"
 	securityinformer "github.com/openshift/origin/pkg/security/generated/informers/internalversion"
 	templateclient "github.com/openshift/origin/pkg/template/generated/internalclientset"
-	userinformer "github.com/openshift/origin/pkg/user/generated/informers/internalversion"
-	userclient "github.com/openshift/origin/pkg/user/generated/internalclientset"
 )
 
 type PluginInitializer struct {
@@ -73,7 +74,7 @@ func (i *PluginInitializer) Initialize(plugin admission.Interface) {
 	if wantsAuthorizer, ok := plugin.(WantsAuthorizer); ok {
 		wantsAuthorizer.SetAuthorizer(i.Authorizer)
 	}
-	if kubeWantsAuthorizer, ok := plugin.(kubeapiserveradmission.WantsAuthorizer); ok {
+	if kubeWantsAuthorizer, ok := plugin.(initializer.WantsAuthorizer); ok {
 		kubeWantsAuthorizer.SetAuthorizer(i.Authorizer)
 	}
 	if wantsJenkinsPipelineConfig, ok := plugin.(WantsJenkinsPipelineConfig); ok {
@@ -106,8 +107,8 @@ func (i *PluginInitializer) Initialize(plugin admission.Interface) {
 // the Validator interface.
 func Validate(plugins []admission.Interface) error {
 	for _, plugin := range plugins {
-		if validater, ok := plugin.(admission.Validator); ok {
-			err := validater.Validate()
+		if validater, ok := plugin.(admission.InitializationValidator); ok {
+			err := validater.ValidateInitialization()
 			if err != nil {
 				return err
 			}

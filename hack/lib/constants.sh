@@ -4,9 +4,9 @@
 
 readonly OS_GO_PACKAGE=github.com/openshift/origin-web-console-server
 
-readonly OS_BUILD_ENV_GOLANG="${OS_BUILD_ENV_GOLANG:-1.8}"
+readonly OS_BUILD_ENV_GOLANG="${OS_BUILD_ENV_GOLANG:-1.9}"
 readonly OS_BUILD_ENV_IMAGE="${OS_BUILD_ENV_IMAGE:-openshift/origin-release:golang-${OS_BUILD_ENV_GOLANG}}"
-readonly OS_REQUIRED_GO_VERSION="go1.8"
+readonly OS_REQUIRED_GO_VERSION="go1.9"
 readonly OS_BUILD_ENV_WORKINGDIR="/go/${OS_GO_PACKAGE}"
 
 readonly OS_OUTPUT_BASEPATH="${OS_OUTPUT_BASEPATH:-_output}"

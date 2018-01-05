@@ -8,24 +8,26 @@ import (
 	o "github.com/onsi/gomega"
 	"github.com/pborman/uuid"
 	"golang.org/x/net/context"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 
+	"k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/authentication/user"
-	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	rbacapi "k8s.io/kubernetes/pkg/apis/rbac"
 	"k8s.io/kubernetes/test/e2e/framework"
 
+	templateapiv1 "github.com/openshift/api/template/v1"
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
 	"github.com/openshift/origin/pkg/config/cmd"
 	templateapi "github.com/openshift/origin/pkg/template/apis/template"
-	templateapiv1 "github.com/openshift/origin/pkg/template/apis/template/v1"
 	"github.com/openshift/origin/pkg/template/client/internalversion"
 	"github.com/openshift/origin/pkg/templateservicebroker/openservicebroker/api"
 	"github.com/openshift/origin/pkg/templateservicebroker/openservicebroker/client"
@@ -37,9 +39,6 @@ var _ = g.Describe("[Conformance][templates] templateservicebroker end-to-end te
 	defer g.GinkgoRecover()
 
 	var (
-		tsbOC               = exutil.NewCLI("openshift-template-service-broker", exutil.KubeConfigPath())
-		portForwardCmdClose func() error
-
 		cli                = exutil.NewCLI("templates", exutil.KubeConfigPath())
 		instanceID         = uuid.NewRandom().String()
 		bindingID          = uuid.NewRandom().String()
@@ -59,7 +58,8 @@ var _ = g.Describe("[Conformance][templates] templateservicebroker end-to-end te
 		err := exutil.WaitForBuilderAccount(cli.KubeClient().Core().ServiceAccounts(cli.Namespace()))
 		o.Expect(err).NotTo(o.HaveOccurred())
 
-		brokercli, portForwardCmdClose = EnsureTSB(tsbOC)
+		brokercli, err = TSBClient(cli)
+		o.Expect(err).NotTo(o.HaveOccurred())
 
 		cliUser = &user.DefaultInfo{Name: cli.Username(), Groups: []string{"system:authenticated"}}
 
@@ -108,9 +108,6 @@ var _ = g.Describe("[Conformance][templates] templateservicebroker end-to-end te
 		// BrokerTemplateInstance object.  The object is not namespaced so the
 		// namespace cleanup doesn't catch this.
 		cli.AdminTemplateClient().Template().BrokerTemplateInstances().Delete(instanceID, nil)
-
-		err = portForwardCmdClose()
-		o.Expect(err).NotTo(o.HaveOccurred())
 	})
 
 	catalog := func() {
@@ -299,7 +296,7 @@ var _ = g.Describe("[Conformance][templates] templateservicebroker end-to-end te
 		o.Expect(err).NotTo(o.HaveOccurred())
 
 		// check the namespace is empty
-		for gvk := range kapi.Scheme.AllKnownTypes() {
+		for gvk := range legacyscheme.Scheme.AllKnownTypes() {
 			if gvk.Version == runtime.APIVersionInternal {
 				continue
 			}
@@ -311,7 +308,8 @@ var _ = g.Describe("[Conformance][templates] templateservicebroker end-to-end te
 				kapi.Kind("RoleBinding"),
 				rbacapi.Kind("RoleBinding"),
 				authorizationapi.LegacyKind("RoleBinding"),
-				authorizationapi.Kind("RoleBinding"):
+				authorizationapi.Kind("RoleBinding"),
+				schema.GroupKind{Group: "events.k8s.io", Kind: "Event"}:
 				continue
 			}
 
@@ -360,8 +358,11 @@ var _ = g.Describe("[Conformance][templates] templateservicebroker end-to-end te
 	g.Context("", func() {
 		g.AfterEach(func() {
 			if g.CurrentGinkgoTestDescription().Failed {
-				exutil.DumpPodStates(tsbOC)
-				exutil.DumpPodLogsStartingWith("", tsbOC)
+				ns := cli.Namespace()
+				cli.SetNamespace("openshift-template-service-broker")
+				exutil.DumpPodStates(cli.AsAdmin())
+				exutil.DumpPodLogsStartingWith("", cli.AsAdmin())
+				cli.SetNamespace(ns)
 
 				exutil.DumpPodStates(cli)
 				exutil.DumpPodLogsStartingWith("", cli)

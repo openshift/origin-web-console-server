@@ -10,23 +10,24 @@ import (
 
 	"github.com/spf13/cobra"
 
+	extensions "k8s.io/api/extensions/v1beta1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
-	kapi "k8s.io/kubernetes/pkg/api"
-	extensions "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
-	kextensionsclient "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/extensions/v1beta1"
+	kextensionsclient "k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	kcmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
 
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsv1client "github.com/openshift/client-go/apps/clientset/versioned/typed/apps/v1"
+	"github.com/openshift/origin/pkg/api"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	appsmanualclient "github.com/openshift/origin/pkg/apps/client/v1"
-	appsv1client "github.com/openshift/origin/pkg/apps/generated/clientset/typed/apps/v1"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 	unidlingapi "github.com/openshift/origin/pkg/unidling/api"
 	utilunidling "github.com/openshift/origin/pkg/unidling/util"
 	utilerrors "github.com/openshift/origin/pkg/util/errors"
@@ -114,7 +115,8 @@ func (o *IdleOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, args []
 		return fmt.Errorf("resource names, selectors, and the all flag may not be be specified if a filename is specified")
 	}
 
-	o.svcBuilder = f.NewBuilder(true).
+	o.svcBuilder = f.NewBuilder().
+		Internal().
 		ContinueOnError().
 		NamespaceParam(namespace).DefaultNamespace().AllNamespaces(o.allNamespaces).
 		Flatten().
@@ -129,7 +131,7 @@ func (o *IdleOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, args []
 	} else {
 		// NB: this is a bit weird because the resource builder will complain if we use ResourceTypes and ResourceNames when len(args) > 0
 		if o.selector != "" {
-			o.svcBuilder.SelectorParam(o.selector).ResourceTypes("endpoints")
+			o.svcBuilder.LabelSelectorParam(o.selector).ResourceTypes("endpoints")
 		}
 
 		o.svcBuilder.ResourceNames("endpoints", args...)
@@ -302,10 +304,10 @@ func getControllerRef(obj runtime.Object, decoder runtime.Decoder) (*kapi.Object
 
 	annotations := objMeta.GetAnnotations()
 
-	creatorRefRaw, creatorListed := annotations[kapi.CreatedByAnnotation]
+	creatorRefRaw, creatorListed := annotations[api.DeprecatedKubeCreatedByAnnotation]
 	if !creatorListed {
 		// if we don't have a creator listed, try the openshift-specific Deployment annotation
-		dcName, dcNameListed := annotations[deployapi.DeploymentConfigAnnotation]
+		dcName, dcNameListed := annotations[appsapi.DeploymentConfigAnnotation]
 		if !dcNameListed {
 			return nil, nil
 		}

@@ -17,10 +17,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/diff"
 	knet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
+	buildv1 "github.com/openshift/api/build/v1"
 	build "github.com/openshift/origin/pkg/build/apis/build"
-	buildv1 "github.com/openshift/origin/pkg/build/apis/build/v1"
 	buildclient "github.com/openshift/origin/pkg/build/generated/internalclientset"
 	testutil "github.com/openshift/origin/test/util"
 	testserver "github.com/openshift/origin/test/util/server"
@@ -33,6 +34,8 @@ var expectedIndex = []string{
 	"/api/v1",
 	"/apis",
 	"/apis/",
+	"/apis/admissionregistration.k8s.io",
+	"/apis/admissionregistration.k8s.io/v1beta1",
 	"/apis/apiextensions.k8s.io",
 	"/apis/apiextensions.k8s.io/v1beta1",
 	"/apis/apiregistration.k8s.io",
@@ -40,7 +43,9 @@ var expectedIndex = []string{
 	"/apis/apps",
 	"/apis/apps.openshift.io",
 	"/apis/apps.openshift.io/v1",
+	"/apis/apps/v1",
 	"/apis/apps/v1beta1",
+	"/apis/apps/v1beta2",
 	"/apis/authentication.k8s.io",
 	"/apis/authentication.k8s.io/v1",
 	"/apis/authentication.k8s.io/v1beta1",
@@ -51,13 +56,17 @@ var expectedIndex = []string{
 	"/apis/authorization.openshift.io/v1",
 	"/apis/autoscaling",
 	"/apis/autoscaling/v1",
+	"/apis/autoscaling/v2beta1",
 	"/apis/batch",
 	"/apis/batch/v1",
+	"/apis/batch/v1beta1",
 	"/apis/batch/v2alpha1",
 	"/apis/build.openshift.io",
 	"/apis/build.openshift.io/v1",
 	"/apis/certificates.k8s.io",
 	"/apis/certificates.k8s.io/v1beta1",
+	"/apis/events.k8s.io",
+	"/apis/events.k8s.io/v1beta1",
 	"/apis/extensions",
 	"/apis/extensions/v1beta1",
 	"/apis/image.openshift.io",
@@ -75,6 +84,7 @@ var expectedIndex = []string{
 	"/apis/quota.openshift.io",
 	"/apis/quota.openshift.io/v1",
 	"/apis/rbac.authorization.k8s.io",
+	"/apis/rbac.authorization.k8s.io/v1",
 	"/apis/rbac.authorization.k8s.io/v1beta1",
 	"/apis/route.openshift.io",
 	"/apis/route.openshift.io/v1",
@@ -90,6 +100,7 @@ var expectedIndex = []string{
 	"/controllers",
 	"/healthz",
 	"/healthz/autoregister-completion",
+	"/healthz/etcd",
 	"/healthz/ping",
 	"/healthz/poststarthook/apiservice-registration-controller",
 	"/healthz/poststarthook/apiservice-status-available-controller",
@@ -98,7 +109,6 @@ var expectedIndex = []string{
 	"/healthz/poststarthook/authorization.openshift.io-ensureopenshift-infra",
 	"/healthz/poststarthook/bootstrap-controller",
 	"/healthz/poststarthook/ca-registration",
-	// "/healthz/poststarthook/extensions/third-party-resources",  // Do not enable this controller, we do not support it
 	"/healthz/poststarthook/generic-apiserver-start-informers",
 	"/healthz/poststarthook/kube-apiserver-autoregistration",
 	"/healthz/poststarthook/oauth.openshift.io-EnsureBootstrapOAuthClients",
@@ -116,6 +126,10 @@ var expectedIndex = []string{
 	"/metrics",
 	"/oapi",
 	"/oapi/v1",
+	"/swagger-2.0.0.json",
+	"/swagger-2.0.0.pb-v1",
+	"/swagger-2.0.0.pb-v1.gz",
+	"/swagger.json",
 	"/swaggerapi",
 	"/version",
 	"/version/openshift",
@@ -247,8 +261,9 @@ func TestWellKnownOAuthOff(t *testing.T) {
 }
 
 var preferredVersions = map[string]string{
-	"":                          "v1",
-	"apps":                      "v1beta1",
+	"": "v1",
+	"admissionregistration.k8s.io": "v1beta1",
+	"apps":                      "v1",
 	"apiextensions.k8s.io":      "v1beta1",
 	"apiregistration.k8s.io":    "v1beta1",
 	"authentication.k8s.io":     "v1",
@@ -256,10 +271,11 @@ var preferredVersions = map[string]string{
 	"autoscaling":               "v1",
 	"batch":                     "v1",
 	"certificates.k8s.io":       "v1beta1",
+	"events.k8s.io":             "v1beta1",
 	"extensions":                "v1beta1",
 	"networking.k8s.io":         "v1",
 	"policy":                    "v1beta1",
-	"rbac.authorization.k8s.io": "v1beta1",
+	"rbac.authorization.k8s.io": "v1",
 	"storage.k8s.io":            "v1",
 
 	"apps.openshift.io":          "v1",
@@ -403,7 +419,7 @@ func TestApiGroups(t *testing.T) {
 
 	t.Logf("Creating a Build")
 	originalBuild := testBuild()
-	_, err = buildclient.NewForConfigOrDie(clusterAdminClientConfig).Builds(ns).Create(originalBuild)
+	_, err = buildclient.NewForConfigOrDie(clusterAdminClientConfig).Build().Builds(ns).Create(originalBuild)
 	if err != nil {
 		t.Fatalf("Unexpected BuildConfig create error: %v", err)
 	}
@@ -419,7 +435,7 @@ func TestApiGroups(t *testing.T) {
 		t.Fatalf("Expected %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 	body, _ := ioutil.ReadAll(resp.Body)
-	codec := kapi.Codecs.LegacyCodec(buildv1.SchemeGroupVersion)
+	codec := legacyscheme.Codecs.LegacyCodec(buildv1.SchemeGroupVersion)
 	respBuild := &buildv1.Build{}
 	gvk := buildv1.SchemeGroupVersion.WithKind("Build")
 	respObj, _, err := codec.Decode(body, &gvk, respBuild)

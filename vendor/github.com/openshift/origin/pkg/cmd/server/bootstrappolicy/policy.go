@@ -7,13 +7,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/apps"
 	kauthenticationapi "k8s.io/kubernetes/pkg/apis/authentication"
 	kauthorizationapi "k8s.io/kubernetes/pkg/apis/authorization"
 	"k8s.io/kubernetes/pkg/apis/autoscaling"
 	"k8s.io/kubernetes/pkg/apis/batch"
 	"k8s.io/kubernetes/pkg/apis/certificates"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/apis/policy"
 	"k8s.io/kubernetes/pkg/apis/rbac"
@@ -22,7 +22,7 @@ import (
 	"k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac/bootstrappolicy"
 
 	oapi "github.com/openshift/origin/pkg/api"
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
@@ -47,21 +47,23 @@ var (
 	readWrite = []string{"get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"}
 	read      = []string{"get", "list", "watch"}
 
-	kapiGroup            = kapi.GroupName
-	appsGroup            = apps.GroupName
-	autoscalingGroup     = autoscaling.GroupName
-	apiExtensionsGroup   = "apiextensions.k8s.io"
-	apiRegistrationGroup = "apiregistration.k8s.io"
-	batchGroup           = batch.GroupName
-	certificatesGroup    = certificates.GroupName
-	extensionsGroup      = extensions.GroupName
-	networkingGroup      = "networking.k8s.io"
-	policyGroup          = policy.GroupName
-	rbacGroup            = rbac.GroupName
-	securityGroup        = securityapi.GroupName
-	legacySecurityGroup  = securityapi.LegacyGroupName
-	storageGroup         = storage.GroupName
-	settingsGroup        = settings.GroupName
+	kapiGroup                  = kapi.GroupName
+	admissionRegistrationGroup = "admissionregistration.k8s.io"
+	appsGroup                  = apps.GroupName
+	autoscalingGroup           = autoscaling.GroupName
+	apiExtensionsGroup         = "apiextensions.k8s.io"
+	eventsGroup                = "events.k8s.io"
+	apiRegistrationGroup       = "apiregistration.k8s.io"
+	batchGroup                 = batch.GroupName
+	certificatesGroup          = certificates.GroupName
+	extensionsGroup            = extensions.GroupName
+	networkingGroup            = "networking.k8s.io"
+	policyGroup                = policy.GroupName
+	rbacGroup                  = rbac.GroupName
+	securityGroup              = securityapi.GroupName
+	legacySecurityGroup        = securityapi.LegacyGroupName
+	storageGroup               = storage.GroupName
+	settingsGroup              = settings.GroupName
 
 	authzGroup          = authorizationapi.GroupName
 	kAuthzGroup         = kauthorizationapi.GroupName
@@ -69,8 +71,8 @@ var (
 	legacyAuthzGroup    = authorizationapi.LegacyGroupName
 	buildGroup          = buildapi.GroupName
 	legacyBuildGroup    = buildapi.LegacyGroupName
-	deployGroup         = deployapi.GroupName
-	legacyDeployGroup   = deployapi.LegacyGroupName
+	deployGroup         = appsapi.GroupName
+	legacyDeployGroup   = appsapi.LegacyGroupName
 	imageGroup          = imageapi.GroupName
 	legacyImageGroup    = imageapi.LegacyGroupName
 	projectGroup        = projectapi.GroupName
@@ -133,7 +135,9 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 					"replicationcontrollers/status", "resourcequotas", "resourcequotas/status", "securitycontextconstraints", "serviceaccounts", "services",
 					"services/status").RuleOrDie(),
 
-				rbac.NewRule(read...).Groups(appsGroup).Resources("statefulsets", "statefulsets/status", "deployments", "deployments/scale", "deployments/status", "controllerrevisions").RuleOrDie(),
+				rbac.NewRule(read...).Groups(admissionRegistrationGroup).Resources("mutatingwebhookconfigurations", "validatingwebhookconfigurations").RuleOrDie(),
+
+				rbac.NewRule(read...).Groups(appsGroup).Resources("statefulsets", "statefulsets/scale", "statefulsets/status", "deployments", "deployments/scale", "deployments/status", "controllerrevisions", "daemonsets", "daemonsets/status", "replicasets", "replicasets/status", "replicasets/scale").RuleOrDie(),
 
 				rbac.NewRule(read...).Groups(apiExtensionsGroup).Resources("customresourcedefinitions", "customresourcedefinitions/status").RuleOrDie(),
 
@@ -141,13 +145,14 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 
 				rbac.NewRule(read...).Groups(autoscalingGroup).Resources("horizontalpodautoscalers", "horizontalpodautoscalers/status").RuleOrDie(),
 
-				// TODO do we still need scheduledjobs?
-				rbac.NewRule(read...).Groups(batchGroup).Resources("jobs", "jobs/status", "scheduledjobs", "scheduledjobs/status", "cronjobs", "cronjobs/status").RuleOrDie(),
+				rbac.NewRule(read...).Groups(batchGroup).Resources("jobs", "jobs/status", "cronjobs", "cronjobs/status").RuleOrDie(),
 
 				rbac.NewRule(read...).Groups(extensionsGroup).Resources("daemonsets", "daemonsets/status", "deployments", "deployments/scale",
 					"deployments/status", "horizontalpodautoscalers", "horizontalpodautoscalers/status", "ingresses", "ingresses/status", "jobs", "jobs/status",
 					"networkpolicies", "podsecuritypolicies", "replicasets", "replicasets/scale", "replicasets/status", "replicationcontrollers",
 					"replicationcontrollers/scale", "storageclasses", "thirdpartyresources").RuleOrDie(),
+
+				rbac.NewRule(read...).Groups(eventsGroup).Resources("events").RuleOrDie(),
 
 				rbac.NewRule(read...).Groups(networkingGroup).Resources("networkpolicies").RuleOrDie(),
 
@@ -193,7 +198,7 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 				// permissions to check access.  These creates are non-mutating
 				rbac.NewRule("create").Groups(authzGroup, legacyAuthzGroup).Resources("localresourceaccessreviews", "localsubjectaccessreviews", "resourceaccessreviews",
 					"selfsubjectrulesreviews", "subjectrulesreviews", "subjectaccessreviews").RuleOrDie(),
-				rbac.NewRule("create").Groups(kAuthzGroup).Resources("selfsubjectaccessreviews", "subjectaccessreviews", "localsubjectaccessreviews").RuleOrDie(),
+				rbac.NewRule("create").Groups(kAuthzGroup).Resources("selfsubjectaccessreviews", "subjectaccessreviews", "selfsubjectrulesreviews", "localsubjectaccessreviews").RuleOrDie(),
 				rbac.NewRule("create").Groups(kAuthnGroup).Resources("tokenreviews").RuleOrDie(),
 				// permissions to check PSP, these creates are non-mutating
 				rbac.NewRule("create").Groups(securityGroup, legacySecurityGroup).Resources("podsecuritypolicysubjectreviews", "podsecuritypolicyselfsubjectreviews", "podsecuritypolicyreviews").RuleOrDie(),
@@ -277,11 +282,11 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 
 				rbac.NewRule(readWrite...).Groups(autoscalingGroup).Resources("horizontalpodautoscalers").RuleOrDie(),
 
-				rbac.NewRule(readWrite...).Groups(batchGroup).Resources("jobs", "scheduledjobs", "cronjobs").RuleOrDie(),
+				rbac.NewRule(readWrite...).Groups(batchGroup).Resources("jobs", "cronjobs").RuleOrDie(),
 
-				rbac.NewRule(readWrite...).Groups(extensionsGroup).Resources("horizontalpodautoscalers", "replicationcontrollers/scale",
-					"replicasets", "replicasets/scale", "deployments", "deployments/scale", "deployments/rollback", "networkpolicies").RuleOrDie(),
-				rbac.NewRule(read...).Groups(extensionsGroup).Resources("daemonsets").RuleOrDie(),
+				rbac.NewRule(readWrite...).Groups(appsGroup, extensionsGroup).Resources("replicationcontrollers/scale",
+					"replicasets", "replicasets/scale", "deployments", "deployments/scale", "deployments/rollback").RuleOrDie(),
+				rbac.NewRule(read...).Groups(appsGroup, extensionsGroup).Resources("daemonsets").RuleOrDie(),
 
 				rbac.NewRule(readWrite...).Groups(appsGroup).Resources("statefulsets", "deployments", "deployments/scale", "deployments/status").RuleOrDie(),
 
@@ -323,6 +328,8 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 
 				rbac.NewRule(readWrite...).Groups(templateGroup, legacyTemplateGroup).Resources("templates", "templateconfigs", "processedtemplates", "templateinstances").RuleOrDie(),
 
+				rbac.NewRule(readWrite...).Groups(extensionsGroup, networkingGroup).Resources("networkpolicies").RuleOrDie(),
+
 				// backwards compatibility
 				rbac.NewRule(readWrite...).Groups(buildGroup, legacyBuildGroup).Resources("buildlogs").RuleOrDie(),
 				rbac.NewRule(read...).Groups(kapiGroup).Resources("resourcequotausages").RuleOrDie(),
@@ -346,11 +353,11 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 
 				rbac.NewRule(readWrite...).Groups(autoscalingGroup).Resources("horizontalpodautoscalers").RuleOrDie(),
 
-				rbac.NewRule(readWrite...).Groups(batchGroup).Resources("jobs", "scheduledjobs", "cronjobs").RuleOrDie(),
+				rbac.NewRule(readWrite...).Groups(batchGroup).Resources("jobs", "cronjobs").RuleOrDie(),
 
-				rbac.NewRule(readWrite...).Groups(extensionsGroup).Resources("horizontalpodautoscalers", "replicationcontrollers/scale",
+				rbac.NewRule(readWrite...).Groups(appsGroup, extensionsGroup).Resources("replicationcontrollers/scale",
 					"replicasets", "replicasets/scale", "deployments", "deployments/scale", "deployments/rollback").RuleOrDie(),
-				rbac.NewRule(read...).Groups(extensionsGroup).Resources("daemonsets").RuleOrDie(),
+				rbac.NewRule(read...).Groups(appsGroup, extensionsGroup).Resources("daemonsets").RuleOrDie(),
 
 				rbac.NewRule(readWrite...).Groups(appsGroup).Resources("statefulsets", "deployments", "deployments/scale", "deployments/status").RuleOrDie(),
 
@@ -382,6 +389,8 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 
 				rbac.NewRule(readWrite...).Groups(templateGroup, legacyTemplateGroup).Resources("templates", "templateconfigs", "processedtemplates", "templateinstances").RuleOrDie(),
 
+				rbac.NewRule(readWrite...).Groups(extensionsGroup, networkingGroup).Resources("networkpolicies").RuleOrDie(),
+
 				// backwards compatibility
 				rbac.NewRule(readWrite...).Groups(buildGroup, legacyBuildGroup).Resources("buildlogs").RuleOrDie(),
 				rbac.NewRule(read...).Groups(kapiGroup).Resources("resourcequotausages").RuleOrDie(),
@@ -403,11 +412,10 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 
 				rbac.NewRule(read...).Groups(autoscalingGroup).Resources("horizontalpodautoscalers").RuleOrDie(),
 
-				rbac.NewRule(read...).Groups(batchGroup).Resources("jobs", "scheduledjobs", "cronjobs").RuleOrDie(),
+				rbac.NewRule(read...).Groups(batchGroup).Resources("jobs", "cronjobs").RuleOrDie(),
 
-				rbac.NewRule(read...).Groups(extensionsGroup).Resources("horizontalpodautoscalers", "replicasets", "replicasets/scale",
-					"deployments", "deployments/scale").RuleOrDie(),
-				rbac.NewRule(read...).Groups(extensionsGroup).Resources("daemonsets").RuleOrDie(),
+				rbac.NewRule(read...).Groups(appsGroup, extensionsGroup).Resources("deployments", "deployments/scale", "replicasets", "replicasets/scale").RuleOrDie(),
+				rbac.NewRule(read...).Groups(appsGroup, extensionsGroup).Resources("daemonsets").RuleOrDie(),
 
 				rbac.NewRule(read...).Groups(appsGroup).Resources("statefulsets", "deployments", "deployments/scale").RuleOrDie(),
 
@@ -551,9 +559,9 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 				rbac.NewRule("list").Groups(kapiGroup).Resources("limitranges").RuleOrDie(),
 				rbac.NewRule("get", "list").Groups(buildGroup, legacyBuildGroup).Resources("buildconfigs", "builds").RuleOrDie(),
 				rbac.NewRule("get", "list").Groups(deployGroup, legacyDeployGroup).Resources("deploymentconfigs").RuleOrDie(),
-				rbac.NewRule("get", "list").Groups(extensionsGroup).Resources("daemonsets").RuleOrDie(),
-				rbac.NewRule("get", "list").Groups(extensionsGroup).Resources("deployments").RuleOrDie(),
-				rbac.NewRule("get", "list").Groups(extensionsGroup).Resources("replicasets").RuleOrDie(),
+				rbac.NewRule("get", "list").Groups(appsGroup, extensionsGroup).Resources("daemonsets").RuleOrDie(),
+				rbac.NewRule("get", "list").Groups(appsGroup, extensionsGroup).Resources("deployments").RuleOrDie(),
+				rbac.NewRule("get", "list").Groups(appsGroup, extensionsGroup).Resources("replicasets").RuleOrDie(),
 
 				rbac.NewRule("delete").Groups(imageGroup, legacyImageGroup).Resources("images").RuleOrDie(),
 				rbac.NewRule("get", "list").Groups(imageGroup, legacyImageGroup).Resources("images", "imagestreams").RuleOrDie(),
@@ -613,6 +621,8 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("list", "watch").Groups(kapiGroup).Resources("endpoints").RuleOrDie(),
 				rbac.NewRule("list", "watch").Groups(kapiGroup).Resources("services").RuleOrDie(),
+
+				rbac.NewRule("create").Groups(kAuthzGroup).Resources("subjectaccessreviews").RuleOrDie(),
 
 				rbac.NewRule("list", "watch").Groups(routeGroup, legacyRouteGroup).Resources("routes").RuleOrDie(),
 				rbac.NewRule("update").Groups(routeGroup, legacyRouteGroup).Resources("routes/status").RuleOrDie(),
@@ -722,6 +732,7 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 				rbac.NewRule(read...).Groups(networkGroup, legacyNetworkGroup).Resources("egressnetworkpolicies", "hostsubnets", "netnamespaces").RuleOrDie(),
 				rbac.NewRule(read...).Groups(kapiGroup).Resources("nodes", "namespaces").RuleOrDie(),
 				rbac.NewRule(read...).Groups(extensionsGroup).Resources("networkpolicies").RuleOrDie(),
+				rbac.NewRule(read...).Groups(networkingGroup).Resources("networkpolicies").RuleOrDie(),
 				rbac.NewRule("get").Groups(networkGroup, legacyNetworkGroup).Resources("clusternetworks").RuleOrDie(),
 			},
 		},

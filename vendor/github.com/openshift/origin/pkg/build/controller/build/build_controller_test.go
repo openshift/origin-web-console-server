@@ -6,22 +6,23 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
+	kexternalinformers "k8s.io/client-go/informers"
+	kexternalclientset "k8s.io/client-go/kubernetes"
+	kexternalclientfake "k8s.io/client-go/kubernetes/fake"
 	clientgotesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
-	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
-	kexternalclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
-	kexternalclientfake "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/fake"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kinternalclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	kinternalclientfake "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
-	kexternalinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions"
 
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
 	"github.com/openshift/origin/pkg/build/apis/build/validation"
@@ -371,10 +372,7 @@ func TestHandleBuild(t *testing.T) {
 					t.Errorf("%s: did not get an update. Expected: %v", tc.name, tc.expectUpdate)
 					return
 				}
-				expectedBuild, err := buildutil.BuildDeepCopy(tc.build)
-				if err != nil {
-					t.Fatalf("unexpected: %v", err)
-				}
+				expectedBuild := tc.build.DeepCopy()
 				tc.expectUpdate.apply(expectedBuild)
 
 				// For start/completion/duration fields, simply validate that they are set/not set
@@ -1060,14 +1058,14 @@ func newFakeBuildController(buildClient buildinternalclientset.Interface, imageC
 		BuildClientInternal: buildClient,
 		DockerBuildStrategy: &strategy.DockerBuildStrategy{
 			Image: "test/image:latest",
-			Codec: kapi.Codecs.LegacyCodec(buildapi.LegacySchemeGroupVersion),
+			Codec: legacyscheme.Codecs.LegacyCodec(buildapi.LegacySchemeGroupVersion),
 		},
 		SourceBuildStrategy: &strategy.SourceBuildStrategy{
 			Image: "test/image:latest",
-			Codec: kapi.Codecs.LegacyCodec(buildapi.LegacySchemeGroupVersion),
+			Codec: legacyscheme.Codecs.LegacyCodec(buildapi.LegacySchemeGroupVersion),
 		},
 		CustomBuildStrategy: &strategy.CustomBuildStrategy{
-			Codec: kapi.Codecs.LegacyCodec(buildapi.LegacySchemeGroupVersion),
+			Codec: legacyscheme.Codecs.LegacyCodec(buildapi.LegacySchemeGroupVersion),
 		},
 		BuildDefaults:  builddefaults.BuildDefaults{},
 		BuildOverrides: buildoverrides.BuildOverrides{},
@@ -1145,7 +1143,7 @@ func validateUpdate(t *testing.T, name string, expected, actual *buildUpdate) {
 		if actual.startTime == nil {
 			t.Errorf("%s: startTime should not be nil.", name)
 		} else {
-			if !(*expected.startTime).Equal(*actual.startTime) {
+			if !(*expected.startTime).Equal(actual.startTime) {
 				t.Errorf("%s: unexpected value for startTime. Expected: %s. Actual: %s", name, *expected.startTime, *actual.startTime)
 			}
 		}
@@ -1158,7 +1156,7 @@ func validateUpdate(t *testing.T, name string, expected, actual *buildUpdate) {
 		if actual.completionTime == nil {
 			t.Errorf("%s: completionTime should not be nil.", name)
 		} else {
-			if !(*expected.completionTime).Equal(*actual.completionTime) {
+			if !(*expected.completionTime).Equal(actual.completionTime) {
 				t.Errorf("%s: unexpected value for completionTime. Expected: %v. Actual: %v", name, *expected.completionTime, *actual.completionTime)
 			}
 		}

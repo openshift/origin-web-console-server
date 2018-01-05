@@ -9,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	kadmission "k8s.io/apiserver/pkg/admission"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kquota "k8s.io/kubernetes/pkg/quota"
 	"k8s.io/kubernetes/pkg/quota/generic"
 
@@ -44,11 +44,12 @@ func (i *imageStreamTagEvaluator) Constraints(required []kapi.ResourceName, obje
 	return nil
 }
 
-func (i *imageStreamTagEvaluator) GroupKind() schema.GroupKind {
-	return imageapi.Kind("ImageStreamTag")
+func (i *imageStreamTagEvaluator) GroupResource() schema.GroupResource {
+	return imageapi.Resource("imagestreamtags")
 }
 
-func (i *imageStreamTagEvaluator) Handles(operation kadmission.Operation) bool {
+func (i *imageStreamTagEvaluator) Handles(a kadmission.Attributes) bool {
+	operation := a.GetOperation()
 	return operation == kadmission.Create || operation == kadmission.Update
 }
 

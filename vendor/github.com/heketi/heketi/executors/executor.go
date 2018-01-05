@@ -12,6 +12,7 @@ package executors
 import "encoding/xml"
 
 type Executor interface {
+	GlusterdCheck(host string) error
 	PeerProbe(exec_host, newnode string) error
 	PeerDetach(exec_host, detachnode string) error
 	DeviceSetup(host, device, vgid string) (*DeviceInfo, error)
@@ -19,12 +20,12 @@ type Executor interface {
 	BrickCreate(host string, brick *BrickRequest) (*BrickInfo, error)
 	BrickDestroy(host string, brick *BrickRequest) error
 	BrickDestroyCheck(host string, brick *BrickRequest) error
-	VolumeCreate(host string, volume *VolumeRequest) (*SingleVolumeInfo, error)
+	VolumeCreate(host string, volume *VolumeRequest) (*Volume, error)
 	VolumeDestroy(host string, volume string) error
 	VolumeDestroyCheck(host, volume string) error
-	VolumeExpand(host string, volume *VolumeRequest) (*SingleVolumeInfo, error)
+	VolumeExpand(host string, volume *VolumeRequest) (*Volume, error)
 	VolumeReplaceBrick(host string, volume string, oldBrick *BrickInfo, newBrick *BrickInfo) error
-	VolumeInfo(host string, volume string) (*SingleVolumeInfo, error)
+	VolumeInfo(host string, volume string) (*Volume, error)
 	SetLogLevel(level string)
 }
 
@@ -61,9 +62,10 @@ type BrickInfo struct {
 }
 
 type VolumeRequest struct {
-	Bricks []BrickInfo
-	Name   string
-	Type   DurabilityType
+	Bricks               []BrickInfo
+	Name                 string
+	Type                 DurabilityType
+	GlusterVolumeOptions []string
 
 	// Dispersion
 	Data       int
@@ -81,8 +83,8 @@ type Brick struct {
 }
 
 type Bricks struct {
-	XMLName xml.Name `xml:"bricks"`
-	Bricks  []Brick  `xml:"brick"`
+	XMLName   xml.Name `xml:"bricks"`
+	BrickList []Brick  `xml:"brick"`
 }
 
 type Option struct {
@@ -91,11 +93,11 @@ type Option struct {
 }
 
 type Options struct {
-	XMLName xml.Name `xml:"options"`
-	Options []Option `xml:"option"`
+	XMLName    xml.Name `xml:"options"`
+	OptionList []Option `xml:"option"`
 }
 
-type SingleVolumeInfo struct {
+type Volume struct {
 	XMLName         xml.Name `xml:"volume"`
 	VolumeName      string   `xml:"name"`
 	ID              string   `xml:"id"`
@@ -117,9 +119,9 @@ type SingleVolumeInfo struct {
 }
 
 type Volumes struct {
-	XMLName xml.Name           `xml:"volumes"`
-	Count   int                `xml:"count"`
-	Volumes []SingleVolumeInfo `xml:"volume"`
+	XMLName    xml.Name `xml:"volumes"`
+	Count      int      `xml:"count"`
+	VolumeList []Volume `xml:"volume"`
 }
 
 type VolInfo struct {

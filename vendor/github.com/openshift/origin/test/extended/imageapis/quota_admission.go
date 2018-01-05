@@ -7,7 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 
 	g "github.com/onsi/ginkgo"
 	o "github.com/onsi/gomega"
@@ -23,7 +23,7 @@ const (
 
 	quotaName = "isquota"
 
-	waitTimeout = time.Second * 30
+	waitTimeout = time.Second * 600
 )
 
 var _ = g.Describe("[Feature:ImageQuota][registry][Serial] Image resource quota", func() {

@@ -38,10 +38,10 @@ const (
 )
 
 type VolumeEntry struct {
-	Info         api.VolumeInfo
-	Bricks       sort.StringSlice
-	Durability   VolumeDurability
-	gidRequested int64
+	Info                 api.VolumeInfo
+	Bricks               sort.StringSlice
+	Durability           VolumeDurability
+	GlusterVolumeOptions []string
 }
 
 func VolumeList(tx *bolt.Tx) ([]string, error) {
@@ -68,7 +68,7 @@ func NewVolumeEntryFromRequest(req *api.VolumeCreateRequest) *VolumeEntry {
 	godbc.Require(req != nil)
 
 	vol := NewVolumeEntry()
-	vol.gidRequested = req.Gid
+	vol.Info.Gid = req.Gid
 	vol.Info.Id = utils.GenUUID()
 	vol.Info.Durability = req.Durability
 	vol.Info.Snapshot = req.Snapshot
@@ -116,6 +116,9 @@ func NewVolumeEntryFromRequest(req *api.VolumeCreateRequest) *VolumeEntry {
 		vol.Info.Snapshot.Factor = 1
 	}
 
+	// If it is zero, then no volume options are set.
+	vol.GlusterVolumeOptions = req.GlusterVolumeOptions
+
 	// If it is zero, then it will be assigned during volume creation
 	vol.Info.Clusters = req.Clusters
 
@@ -160,6 +163,7 @@ func (v *VolumeEntry) NewInfoResponse(tx *bolt.Tx) (*api.VolumeInfoResponse, err
 	info.Size = v.Info.Size
 	info.Durability = v.Info.Durability
 	info.Name = v.Info.Name
+	info.GlusterVolumeOptions = v.GlusterVolumeOptions
 
 	for _, brickid := range v.BricksIds() {
 		brick, err := NewBrickEntryFromId(tx, brickid)
@@ -233,7 +237,6 @@ func (v *VolumeEntry) Create(db *bolt.DB,
 			var err error
 			possibleClusters, err = ClusterList(tx)
 			return err
-
 		})
 		if err != nil {
 			return err
@@ -511,7 +514,6 @@ func (v *VolumeEntry) Expand(db *bolt.DB,
 	// Create bricks
 	err = CreateBricks(db, executor, brick_entries)
 	if err != nil {
-		logger.Err(err)
 		return err
 	}
 
@@ -585,4 +587,8 @@ func (v *VolumeEntry) checkBricksCanBeDestroyed(db *bolt.DB,
 		logger.Err(err)
 	}
 	return err
+}
+
+func VolumeEntryUpgrade(tx *bolt.Tx) error {
+	return nil
 }

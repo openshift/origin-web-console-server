@@ -6,14 +6,13 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/watch"
-	kapi "k8s.io/kubernetes/pkg/api"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kcoreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
 
 	"github.com/golang/glog"
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
-	deployutil "github.com/openshift/origin/pkg/apps/util"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsutil "github.com/openshift/origin/pkg/apps/util"
 )
 
 var (
@@ -26,8 +25,7 @@ var (
 // the deployment became running, complete, or failed within timeout, false if it did not, and an error if any
 // other error state occurred. The last observed deployment state is returned.
 func WaitForRunningDeployment(rn kcoreclient.ReplicationControllersGetter, observed *kapi.ReplicationController, timeout time.Duration) (*kapi.ReplicationController, bool, error) {
-	fieldSelector := fields.Set{"metadata.name": observed.Name}.AsSelector()
-	options := metav1.ListOptions{FieldSelector: fieldSelector.String(), ResourceVersion: observed.ResourceVersion}
+	options := metav1.SingleObject(observed.ObjectMeta)
 	w, err := rn.ReplicationControllers(observed.Namespace).Watch(options)
 	if err != nil {
 		return observed, false, err
@@ -52,10 +50,10 @@ func WaitForRunningDeployment(rn kcoreclient.ReplicationControllersGetter, obser
 			return false, fmt.Errorf("received unknown object while watching for deployments: %v", obj)
 		}
 		observed = obj
-		switch deployutil.DeploymentStatusFor(observed) {
-		case deployapi.DeploymentStatusRunning, deployapi.DeploymentStatusFailed, deployapi.DeploymentStatusComplete:
+		switch appsutil.DeploymentStatusFor(observed) {
+		case appsapi.DeploymentStatusRunning, appsapi.DeploymentStatusFailed, appsapi.DeploymentStatusComplete:
 			return true, nil
-		case deployapi.DeploymentStatusNew, deployapi.DeploymentStatusPending:
+		case appsapi.DeploymentStatusNew, appsapi.DeploymentStatusPending:
 			return false, nil
 		default:
 			return false, ErrUnknownDeploymentPhase

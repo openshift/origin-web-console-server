@@ -31,6 +31,7 @@ const (
 type driver struct {
 	volume.IODriver
 	volume.StoreEnumerator
+	volume.StatsDriver
 	nfsServer string
 	nfsPath   string
 	mounter   mount.Manager
@@ -48,7 +49,7 @@ func Init(params map[string]string) (volume.VolumeDriver, error) {
 		dlog.Printf("NFS driver initializing with %s:%s ", server, path)
 	}
 	// Create a mount manager for this NFS server. Blank sever is OK.
-	mounter, err := mount.New(mount.NFSMount, nil, server)
+	mounter, err := mount.New(mount.NFSMount, nil, []string{server}, nil, []string{})
 	if err != nil {
 		dlog.Warnf("Failed to create mount manager for server: %v (%v)", server, err)
 		return nil, err
@@ -56,6 +57,7 @@ func Init(params map[string]string) (volume.VolumeDriver, error) {
 	inst := &driver{
 		IODriver:        volume.IONotSupported,
 		StoreEnumerator: common.NewDefaultStoreEnumerator(Name, kvdb.Instance()),
+		StatsDriver:     volume.StatsNotSupported,
 		nfsServer:       server,
 		nfsPath:         path,
 		mounter:         mounter,
@@ -217,7 +219,7 @@ func (d *driver) Mount(volumeID string, mountpath string) error {
 	srcPath := path.Join(":", d.nfsPath, volumeID)
 	mountExists, err := d.mounter.Exists(srcPath, mountpath)
 	if !mountExists {
-		d.mounter.Unmount(path.Join(nfsMountPath, volumeID), mountpath, 0)
+		d.mounter.Unmount(path.Join(nfsMountPath, volumeID), mountpath, syscall.MNT_DETACH, 0)
 		if err := d.mounter.Mount(
 			0, path.Join(nfsMountPath, volumeID),
 			mountpath,
@@ -246,7 +248,7 @@ func (d *driver) Unmount(volumeID string, mountpath string) error {
 	if len(v.AttachPath) == 0 {
 		return fmt.Errorf("Device %v not mounted", volumeID)
 	}
-	err = d.mounter.Unmount(path.Join(nfsMountPath, volumeID), mountpath, 0)
+	err = d.mounter.Unmount(path.Join(nfsMountPath, volumeID), mountpath, syscall.MNT_DETACH, 0)
 	if err != nil {
 		return err
 	}
@@ -274,11 +276,23 @@ func (d *driver) Snapshot(volumeID string, readonly bool, locator *api.VolumeLoc
 	return newVolumeID, nil
 }
 
-func (d *driver) Attach(volumeID string) (string, error) {
+func (d *driver) Restore(volumeID string, snapID string) error {
+	if _, err := d.Inspect([]string{volumeID, snapID}); err != nil {
+		return err
+	}
+
+	// NFS does not support restore, so just copy the files.
+	if err := copyDir(nfsMountPath+snapID, nfsMountPath+volumeID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (d *driver) Attach(volumeID string, attachOptions map[string]string) (string, error) {
 	return path.Join(nfsMountPath, volumeID+nfsBlockFile), nil
 }
 
-func (d *driver) Detach(volumeID string) error {
+func (d *driver) Detach(volumeID string, unmountBeforeDetach bool) error {
 	return nil
 }
 
@@ -296,21 +310,9 @@ func (d *driver) Set(volumeID string, locator *api.VolumeLocator, spec *api.Volu
 	return d.UpdateVol(v)
 }
 
-func (d *driver) Stats(volumeID string, cumulative bool) (*api.Stats, error) {
-	return nil, volume.ErrNotSupported
-}
-
-func (d *driver) Alerts(volumeID string) (*api.Alerts, error) {
-	return nil, volume.ErrNotSupported
-}
-
 func (d *driver) Shutdown() {
 	dlog.Printf("%s Shutting down", Name)
 	syscall.Unmount(nfsMountPath, 0)
-}
-
-func (d *driver) GetActiveRequests() (*api.ActiveRequests, error) {
-	return nil, nil
 }
 
 func copyFile(source string, dest string) (err error) {

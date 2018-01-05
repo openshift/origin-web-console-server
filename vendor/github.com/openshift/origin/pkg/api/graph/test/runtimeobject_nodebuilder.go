@@ -5,17 +5,19 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/apis/autoscaling"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
+	"k8s.io/kubernetes/pkg/kubectl/categories"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
 
 	osgraph "github.com/openshift/origin/pkg/api/graph"
 	_ "github.com/openshift/origin/pkg/api/install"
 	kubegraph "github.com/openshift/origin/pkg/api/kubegraph/nodes"
-	deployapi "github.com/openshift/origin/pkg/apps/apis/apps"
-	deploygraph "github.com/openshift/origin/pkg/apps/graph/nodes"
+	appsapi "github.com/openshift/origin/pkg/apps/apis/apps"
+	appsgraph "github.com/openshift/origin/pkg/apps/graph/nodes"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
 	buildgraph "github.com/openshift/origin/pkg/build/graph/nodes"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
@@ -34,7 +36,7 @@ func init() {
 	if err := RegisterEnsureNode(&imageapi.ImageStream{}, imagegraph.EnsureImageStreamNode); err != nil {
 		panic(err)
 	}
-	if err := RegisterEnsureNode(&deployapi.DeploymentConfig{}, deploygraph.EnsureDeploymentConfigNode); err != nil {
+	if err := RegisterEnsureNode(&appsapi.DeploymentConfig{}, appsgraph.EnsureDeploymentConfigNode); err != nil {
 		panic(err)
 	}
 	if err := RegisterEnsureNode(&buildapi.BuildConfig{}, buildgraph.EnsureBuildConfigNode); err != nil {
@@ -129,13 +131,26 @@ func BuildGraph(path string) (osgraph.Graph, []runtime.Object, error) {
 		return g, objs, err
 	}
 
-	mapper := kapi.Registry.RESTMapper()
-	typer := kapi.Scheme
-	clientMapper := resource.ClientMapperFunc(func(mapping *meta.RESTMapping) (resource.RESTClient, error) {
-		return nil, nil
-	})
+	mapper := legacyscheme.Registry.RESTMapper()
 
-	r := resource.NewBuilder(mapper, resource.SimpleCategoryExpander{}, typer, clientMapper, kapi.Codecs.UniversalDecoder()).
+	builder := resource.NewBuilder(
+		&resource.Mapper{
+			RESTMapper:   mapper,
+			ObjectTyper:  legacyscheme.Scheme,
+			ClientMapper: resource.DisabledClientForMapping{},
+			Decoder:      legacyscheme.Codecs.UniversalDecoder(),
+		},
+		&resource.Mapper{
+			RESTMapper:   mapper,
+			ObjectTyper:  legacyscheme.Scheme,
+			ClientMapper: resource.DisabledClientForMapping{},
+			Decoder:      unstructured.UnstructuredJSONScheme,
+		},
+		categories.SimpleCategoryExpander{},
+	)
+
+	r := builder.
+		Internal().
 		FilenameParam(false, &resource.FilenameOptions{Recursive: false, Filenames: []string{abspath}}).
 		Flatten().
 		Do()

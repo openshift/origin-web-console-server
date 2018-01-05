@@ -5,22 +5,22 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	kcoreinformers "k8s.io/client-go/informers/core/v1"
+	kclientset "k8s.io/client-go/kubernetes"
 	kv1core "k8s.io/client-go/kubernetes/typed/core/v1"
-	kclientv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
-	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
-	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
-	kcoreinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions/core/v1"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	kapi "k8s.io/kubernetes/pkg/apis/core"
 	kcontroller "k8s.io/kubernetes/pkg/controller"
 
-	deployutil "github.com/openshift/origin/pkg/apps/util"
+	appsutil "github.com/openshift/origin/pkg/apps/util"
 )
 
 // NewDeployerController creates a new DeploymentController.
@@ -34,8 +34,9 @@ func NewDeployerController(
 	codec runtime.Codec,
 ) *DeploymentController {
 	eventBroadcaster := record.NewBroadcaster()
+	eventBroadcaster.StartLogging(glog.Infof)
 	eventBroadcaster.StartRecordingToSink(&kv1core.EventSinkImpl{Interface: kv1core.New(kubeClientset.CoreV1().RESTClient()).Events("")})
-	recorder := eventBroadcaster.NewRecorder(kapi.Scheme, kclientv1.EventSource{Component: "deployer-controller"})
+	recorder := eventBroadcaster.NewRecorder(legacyscheme.Scheme, v1.EventSource{Component: "deployer-controller"})
 
 	c := &DeploymentController{
 		rn: kubeClientset.Core(),
@@ -50,7 +51,7 @@ func NewDeployerController(
 
 		serviceAccount: sa,
 		deployerImage:  image,
-		environment:    deployutil.CopyApiEnvVarToV1EnvVar(env),
+		environment:    appsutil.CopyApiEnvVarToV1EnvVar(env),
 		recorder:       recorder,
 		codec:          codec,
 	}
@@ -94,7 +95,7 @@ func (c *DeploymentController) Run(workers int, stopCh <-chan struct{}) {
 func (c *DeploymentController) addReplicationController(obj interface{}) {
 	rc := obj.(*v1.ReplicationController)
 	// Filter out all unrelated replication controllers.
-	if !deployutil.IsOwnedByConfig(rc) {
+	if !appsutil.IsOwnedByConfig(rc) {
 		return
 	}
 
@@ -110,7 +111,7 @@ func (c *DeploymentController) updateReplicationController(old, cur interface{})
 	}
 
 	// Filter out all unrelated replication controllers.
-	if !deployutil.IsOwnedByConfig(curRC) {
+	if !appsutil.IsOwnedByConfig(curRC) {
 		return
 	}
 
@@ -160,7 +161,7 @@ func (c *DeploymentController) enqueueReplicationController(rc *v1.ReplicationCo
 }
 
 func (c *DeploymentController) rcForDeployerPod(pod *v1.Pod) (*v1.ReplicationController, error) {
-	rcName := deployutil.DeploymentNameFor(pod)
+	rcName := appsutil.DeploymentNameFor(pod)
 	if len(rcName) == 0 {
 		// Not a deployer pod, so don't bother with it.
 		return nil, nil

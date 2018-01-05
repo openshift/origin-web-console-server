@@ -295,7 +295,10 @@ func (o NodeOptions) resolveNodeConfig() (*configapi.NodeConfig, string, error) 
 		if err != nil {
 			return nil, "", err
 		}
-		cfg, err := o.NodeArgs.BuildSerializeableNodeConfig()
+		cfg, err := configapilatest.ReadAndResolveNodeConfig(configFile)
+		if err != nil {
+			return nil, "", err
+		}
 		return cfg, configFile, err
 	}
 }
@@ -344,6 +347,10 @@ func (o NodeOptions) createNodeConfig() (string, error) {
 
 		APIServerURL:     masterAddr.String(),
 		APIServerCAFiles: []string{admin.DefaultCABundleFile(o.NodeArgs.MasterCertDir)},
+
+		KubeletArguments: map[string][]string{
+			"fail-swap-on": {"false"},
+		},
 
 		NodeClientCAFile: getSignerOptions.CertFile,
 		ExpireDays:       o.ExpireDays,

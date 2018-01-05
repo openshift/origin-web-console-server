@@ -24,7 +24,7 @@ import (
 	buildlister "github.com/openshift/origin/pkg/build/generated/listers/build/internalversion"
 	buildutil "github.com/openshift/origin/pkg/build/util"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	"github.com/openshift/origin/pkg/oc/cli/util/clientcmd"
 )
 
 // CancelBuildRecommendedCommandName is the recommended command name.
@@ -113,7 +113,7 @@ func (o *CancelBuildOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, 
 	}
 
 	if len(args) == 0 {
-		return kcmdutil.UsageError(cmd, "Must pass a name of a build or a buildconfig to cancel")
+		return kcmdutil.UsageErrorf(cmd, "Must pass a name of a build or a buildconfig to cancel")
 	}
 
 	namespace, _, err := f.DefaultNamespace()
@@ -128,7 +128,7 @@ func (o *CancelBuildOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, 
 	} else {
 		for _, state := range o.States {
 			if len(state) > 0 && !isStateCancellable(state) {
-				return kcmdutil.UsageError(cmd, "The '--state' flag has invalid value. Must be one of 'new', 'pending', or 'running'")
+				return kcmdutil.UsageErrorf(cmd, "The '--state' flag has invalid value. Must be one of 'new', 'pending', or 'running'")
 			}
 		}
 	}
@@ -144,7 +144,7 @@ func (o *CancelBuildOptions) Complete(f *clientcmd.Factory, cmd *cobra.Command, 
 
 	o.Namespace = namespace
 	o.Client = client
-	o.BuildLister = buildclient.NewClientBuildLister(client)
+	o.BuildLister = buildclient.NewClientBuildLister(client.Build())
 	o.BuildClient = client.Build().Builds(namespace)
 	o.Mapper, _ = f.Object()
 

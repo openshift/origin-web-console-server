@@ -10,8 +10,8 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	kubeletoptions "k8s.io/kubernetes/cmd/kubelet/app/options"
-	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	"k8s.io/kubernetes/pkg/features"
+	"k8s.io/kubernetes/pkg/kubelet/apis/kubeletconfig"
 	kubeletcni "k8s.io/kubernetes/pkg/kubelet/network/cni"
 	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
 
@@ -46,7 +46,10 @@ func Build(options configapi.NodeConfig) (*kubeletoptions.KubeletServer, error) 
 	}
 
 	// Defaults are tested in TestKubeletDefaults
-	server := kubeletoptions.NewKubeletServer()
+	server, err := kubeletoptions.NewKubeletServer()
+	if err != nil {
+		return nil, fmt.Errorf("cannot create kubelet server: %v", err)
+	}
 	// Adjust defaults
 	server.RequireKubeConfig = true
 	server.KubeConfig.Default(options.MasterKubeConfig)
@@ -74,7 +77,6 @@ func Build(options configapi.NodeConfig) (*kubeletoptions.KubeletServer, error) 
 	server.MaxPods = 250
 	server.PodsPerCore = 10
 	server.CgroupDriver = "systemd"
-	server.DockerExecHandlerName = string(options.DockerConfig.ExecHandlerName)
 	server.RemoteRuntimeEndpoint = options.DockerConfig.DockerShimSocket
 	server.RemoteImageEndpoint = options.DockerConfig.DockerShimSocket
 	server.DockershimRootDirectory = options.DockerConfig.DockershimRootDirectory
@@ -92,15 +94,15 @@ func Build(options configapi.NodeConfig) (*kubeletoptions.KubeletServer, error) 
 	if err != nil {
 		return nil, err
 	}
-	server.Authentication = componentconfig.KubeletAuthentication{
-		X509: componentconfig.KubeletX509Authentication{
+	server.Authentication = kubeletconfig.KubeletAuthentication{
+		X509: kubeletconfig.KubeletX509Authentication{
 			ClientCAFile: options.ServingInfo.ClientCA,
 		},
-		Webhook: componentconfig.KubeletWebhookAuthentication{
+		Webhook: kubeletconfig.KubeletWebhookAuthentication{
 			Enabled:  true,
 			CacheTTL: metav1.Duration{Duration: authnTTL},
 		},
-		Anonymous: componentconfig.KubeletAnonymousAuthentication{
+		Anonymous: kubeletconfig.KubeletAnonymousAuthentication{
 			Enabled: true,
 		},
 	}
@@ -108,9 +110,9 @@ func Build(options configapi.NodeConfig) (*kubeletoptions.KubeletServer, error) 
 	if err != nil {
 		return nil, err
 	}
-	server.Authorization = componentconfig.KubeletAuthorization{
-		Mode: componentconfig.KubeletAuthorizationModeWebhook,
-		Webhook: componentconfig.KubeletWebhookAuthorization{
+	server.Authorization = kubeletconfig.KubeletAuthorization{
+		Mode: kubeletconfig.KubeletAuthorizationModeWebhook,
+		Webhook: kubeletconfig.KubeletWebhookAuthorization{
 			CacheAuthorizedTTL:   metav1.Duration{Duration: authzTTL},
 			CacheUnauthorizedTTL: metav1.Duration{Duration: authzTTL},
 		},
@@ -125,7 +127,7 @@ func Build(options configapi.NodeConfig) (*kubeletoptions.KubeletServer, error) 
 
 	// terminate early if feature gate is incorrect on the node
 	if len(server.FeatureGates) > 0 {
-		if err := utilfeature.DefaultFeatureGate.Set(server.FeatureGates); err != nil {
+		if err := utilfeature.DefaultFeatureGate.SetFromMap(server.FeatureGates); err != nil {
 			return nil, err
 		}
 	}
@@ -140,15 +142,15 @@ func Build(options configapi.NodeConfig) (*kubeletoptions.KubeletServer, error) 
 	if network.IsOpenShiftNetworkPlugin(options.NetworkConfig.NetworkPluginName) {
 		// SDN plugin pod setup/teardown is implemented as a CNI plugin
 		server.NetworkPluginName = kubeletcni.CNIPluginName
-		server.NetworkPluginDir = kubeletcni.DefaultNetDir
 		server.CNIConfDir = kubeletcni.DefaultNetDir
 		server.CNIBinDir = kubeletcni.DefaultCNIDir
-		server.HairpinMode = componentconfig.HairpinNone
+		server.HairpinMode = kubeletconfig.HairpinNone
 	}
 
 	return server, nil
 }
 
 func ToFlags(config *kubeletoptions.KubeletServer) []string {
-	return cmdflags.AsArgs(config.AddFlags, kubeletoptions.NewKubeletServer().AddFlags)
+	server, _ := kubeletoptions.NewKubeletServer()
+	return cmdflags.AsArgs(config.AddFlags, server.AddFlags)
 }

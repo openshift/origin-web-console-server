@@ -55,13 +55,28 @@ func APIGroupMatches(rule *PolicyRule, requestedGroup string) bool {
 	return false
 }
 
-func ResourceMatches(rule *PolicyRule, requestedResource string) bool {
+func ResourceMatches(rule *PolicyRule, combinedRequestedResource, requestedSubresource string) bool {
 	for _, ruleResource := range rule.Resources {
+		// if everything is allowed, we match
 		if ruleResource == ResourceAll {
 			return true
 		}
-		if ruleResource == requestedResource {
+		// if we have an exact match, we match
+		if ruleResource == combinedRequestedResource {
 			return true
+		}
+
+		// We can also match a */subresource.
+		// if there isn't a subresource, then continue
+		if len(requestedSubresource) == 0 {
+			continue
+		}
+		// if the rule isn't in the format */subresource, then we don't match, continue
+		if len(ruleResource) == len(requestedSubresource)+2 &&
+			strings.HasPrefix(ruleResource, "*/") &&
+			strings.HasSuffix(ruleResource, requestedSubresource) {
+			return true
+
 		}
 	}
 
@@ -215,9 +230,8 @@ func (r *PolicyRuleBuilder) Rule() (PolicyRule, error) {
 			return PolicyRule{}, fmt.Errorf("non-resource rule may not have apiGroups, resources, or resourceNames: %#v", r.PolicyRule)
 		}
 	case len(r.PolicyRule.Resources) > 0:
-		if len(r.PolicyRule.NonResourceURLs) != 0 {
-			return PolicyRule{}, fmt.Errorf("resource rule may not have nonResourceURLs: %#v", r.PolicyRule)
-		}
+		// resource rule may not have nonResourceURLs
+
 		if len(r.PolicyRule.APIGroups) == 0 {
 			// this a common bug
 			return PolicyRule{}, fmt.Errorf("resource rule must have apiGroups: %#v", r.PolicyRule)
