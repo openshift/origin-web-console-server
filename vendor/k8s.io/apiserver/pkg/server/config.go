@@ -459,9 +459,8 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
 
 		listedPathProvider: apiServerHandler,
 
-		swaggerConfig:           c.SwaggerConfig,
-		openAPIConfig:           c.OpenAPIConfig,
-		openAPIDelegationTarget: delegationTarget,
+		swaggerConfig: c.SwaggerConfig,
+		openAPIConfig: c.OpenAPIConfig,
 
 		postStartHooks:         map[string]postStartHookEntry{},
 		preShutdownHooks:       map[string]preShutdownHookEntry{},
@@ -567,9 +566,8 @@ func installAPI(s *GenericAPIServer, c *Config) {
 			routes.DefaultMetrics{}.Install(s.Handler.NonGoRestfulMux)
 		}
 	}
-	if c.Version != nil {
-		routes.Version{Version: c.Version}.Install(s.Handler.NonGoRestfulMux)
-	}
+	routes.Version{Version: c.Version}.Install(s.Handler.GoRestfulContainer)
+
 	if c.EnableDiscovery {
 		s.Handler.GoRestfulContainer.Add(s.DiscoveryGroupManager.WebService())
 	}
