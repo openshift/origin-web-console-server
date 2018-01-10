@@ -26,7 +26,7 @@ import (
 	localwebconsolev1 "github.com/openshift/origin-web-console-server/pkg/apis/webconsole/v1"
 	"github.com/openshift/origin-web-console-server/pkg/apis/webconsole/validation"
 	webconsoleserver "github.com/openshift/origin-web-console-server/pkg/assets/apiserver"
-	"github.com/openshift/origin/pkg/cmd/server/crypto"
+	"github.com/openshift/origin-web-console-server/pkg/origin-common/crypto"
 )
 
 type WebConsoleServerOptions struct {

@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	"github.com/openshift/api/webconsole/v1"
-	"github.com/openshift/origin/pkg/cmd/server/crypto"
+	"github.com/openshift/origin-web-console-server/pkg/origin-common/crypto"
 )
 
 // TODO this entire file needs to collapse with other config code
