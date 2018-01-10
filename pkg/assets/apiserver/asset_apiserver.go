@@ -4,9 +4,16 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strings"
 
 	"github.com/elazarl/go-bindata-assetfs"
 
+	"k8s.io/apimachinery/pkg/apimachinery/announced"
+	"k8s.io/apimachinery/pkg/apimachinery/registered"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/features"
@@ -15,24 +22,43 @@ import (
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
 	genericmux "k8s.io/apiserver/pkg/server/mux"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	"k8s.io/kubernetes/pkg/api/legacyscheme"
-	kversion "k8s.io/kubernetes/pkg/version"
 
+	"github.com/openshift/api/webconsole/v1"
 	"github.com/openshift/origin-web-console-server/pkg/assets"
 	"github.com/openshift/origin-web-console-server/pkg/assets/java"
-	"github.com/openshift/origin/pkg/api"
-	oapi "github.com/openshift/origin/pkg/cmd/server/api"
-	oauthutil "github.com/openshift/origin/pkg/oauth/util"
-	"github.com/openshift/origin/pkg/util/httprequest"
-	oversion "github.com/openshift/origin/pkg/version"
+	"github.com/openshift/origin-web-console-server/pkg/version"
 )
+
+var (
+	groupFactoryRegistry = make(announced.APIGroupFactoryRegistry)
+	registry             = registered.NewOrDie("")
+	scheme               = runtime.NewScheme()
+	codecs               = serializer.NewCodecFactory(scheme)
+
+	// if you modify this, make sure you update the crEncoder
+	unversionedVersion = schema.GroupVersion{Group: "", Version: "v1"}
+	unversionedTypes   = []runtime.Object{
+		&metav1.Status{},
+		&metav1.WatchEvent{},
+		&metav1.APIVersions{},
+		&metav1.APIGroupList{},
+		&metav1.APIGroup{},
+		&metav1.APIResourceList{},
+	}
+)
+
+func init() {
+	// we need to add the options to empty v1
+	metav1.AddToGroupVersion(scheme, schema.GroupVersion{Group: "", Version: "v1"})
+	scheme.AddUnversionedTypes(unversionedVersion, unversionedTypes...)
+}
 
 const (
 	OpenShiftWebConsoleClientID = "openshift-web-console"
 )
 
 type ExtraConfig struct {
-	Options   oapi.AssetConfig
+	Options   v1.WebConsoleConfiguration
 	PublicURL url.URL
 }
 
@@ -58,13 +84,13 @@ type CompletedConfig struct {
 	*completedConfig
 }
 
-func NewAssetServerConfig(assetConfig oapi.AssetConfig) (*AssetServerConfig, error) {
+func NewAssetServerConfig(assetConfig v1.WebConsoleConfiguration) (*AssetServerConfig, error) {
 	publicURL, err := url.Parse(assetConfig.PublicURL)
 	if err != nil {
 		return nil, err
 	}
 
-	genericConfig := genericapiserver.NewConfig(legacyscheme.Codecs)
+	genericConfig := genericapiserver.NewConfig(codecs)
 	genericConfig.EnableDiscovery = false
 	genericConfig.BuildHandlerChainFunc = buildHandlerChainForAssets(publicURL.Path)
 
@@ -149,21 +175,22 @@ func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorder
 		APIGroupAddr:      masterURL.Host,
 		APIGroupPrefix:    server.APIGroupPrefix,
 		MasterAddr:        masterURL.Host,
-		MasterPrefix:      api.Prefix,
+		MasterPrefix:      "/oapi",
 		KubernetesAddr:    masterURL.Host,
 		KubernetesPrefix:  server.DefaultLegacyAPIPrefix,
-		OAuthAuthorizeURI: oauthutil.OpenShiftOAuthAuthorizeURL(masterURL.String()),
-		OAuthTokenURI:     oauthutil.OpenShiftOAuthTokenURL(masterURL.String()),
+		OAuthAuthorizeURI: openShiftOAuthAuthorizeURL(masterURL.String()),
+		OAuthTokenURI:     openShiftOAuthTokenURL(masterURL.String()),
 		OAuthRedirectBase: c.ExtraConfig.Options.PublicURL,
 		OAuthClientID:     OpenShiftWebConsoleClientID,
 		LogoutURI:         c.ExtraConfig.Options.LogoutURL,
 		LoggingURL:        c.ExtraConfig.Options.LoggingPublicURL,
 		MetricsURL:        c.ExtraConfig.Options.MetricsPublicURL,
 	}
-	kVersionInfo := kversion.Get()
-	oVersionInfo := oversion.Get()
+
+	// TODO this looks incorrect.  I'm guessing that we need to contact the master and locate the actual versions
+	oVersionInfo := version.Get()
 	versionInfo := assets.WebConsoleVersion{
-		KubernetesVersion: kVersionInfo.GitVersion,
+		KubernetesVersion: oVersionInfo.GitVersion,
 		OpenShiftVersion:  oVersionInfo.GitVersion,
 	}
 
@@ -203,7 +230,7 @@ func (c completedConfig) buildAssetHandler() (http.Handler, error) {
 
 	// Cache control should happen after all Vary headers are added, but before
 	// any asset related routing (HTML5ModeHandler and FileServer)
-	handler = assets.CacheControlHandler(oversion.Get().GitCommit, handler)
+	handler = assets.CacheControlHandler(version.Get().GitCommit, handler)
 
 	handler = assets.SecurityHeadersHandler(handler)
 
@@ -228,14 +255,29 @@ func extensionPropertyArray(extensionProperties map[string]string) []assets.WebC
 
 // If we know the location of the asset server, redirect to it when / is requested
 // and the Accept header supports text/html
+// This should *only* be hit with browser, so just unconditionally redirect
 func WithAssetServerRedirect(handler http.Handler, assetPublicURL string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/" {
-			if httprequest.PrefersHTML(req) {
-				http.Redirect(w, req, assetPublicURL, http.StatusFound)
-			}
+			http.Redirect(w, req, assetPublicURL, http.StatusFound)
 		}
 		// Dispatch to the next handler
 		handler.ServeHTTP(w, req)
 	})
+}
+
+const (
+	OpenShiftOAuthAPIPrefix = "/oauth"
+	AuthorizePath           = "/authorize"
+	TokenPath               = "/token"
+)
+
+func openShiftOAuthAuthorizeURL(masterAddr string) string {
+	return openShiftOAuthURL(masterAddr, AuthorizePath)
+}
+func openShiftOAuthTokenURL(masterAddr string) string {
+	return openShiftOAuthURL(masterAddr, TokenPath)
+}
+func openShiftOAuthURL(masterAddr, oauthEndpoint string) string {
+	return strings.TrimRight(masterAddr, "/") + path.Join(OpenShiftOAuthAPIPrefix, oauthEndpoint)
 }

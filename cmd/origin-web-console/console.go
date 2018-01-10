@@ -13,7 +13,7 @@ import (
 	"k8s.io/apiserver/pkg/util/logs"
 
 	webconsolecmd "github.com/openshift/origin-web-console-server/pkg/assets/apiserver/cmd"
-	"github.com/openshift/origin/pkg/cmd/util/serviceability"
+	"github.com/openshift/origin-web-console-server/pkg/origin-common/serviceability"
 )
 
 func main() {
