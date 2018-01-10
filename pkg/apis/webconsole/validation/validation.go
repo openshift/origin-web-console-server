@@ -1,8 +1,6 @@
 package validation
 
 import (
-	"fmt"
-	"regexp"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -52,44 +50,17 @@ func ValidateWebConsoleConfiguration(config *v1.WebConsoleConfiguration, fldPath
 		validationResults.AddWarnings(field.Invalid(fldPath.Child("metricsPublicURL"), "", "required to view cluster metrics in the console"))
 	}
 
-	// FIXME: Temporarily turn off validation since these are now treated as URLs.
-	//        We will fix when we update the AssetConfig for the new extension script URL / style URL property names.
-	// for i, scriptFile := range config.ExtensionScripts {
-	// 	validationResults.AddErrors(ValidateFile(scriptFile, fldPath.Child("extensionScripts").Index(i))...)
-	// }
+	for i, scriptURL := range config.ExtensionScripts {
+		if _, scriptURLErrs := ValidateSecureURL(scriptURL, fldPath.Child("extensionScripts").Index(i)); len(scriptURLErrs) > 0 {
+			validationResults.AddErrors(scriptURLErrs...)
+		}
+	}
 
-	// for i, stylesheetFile := range config.ExtensionStylesheets {
-	// 	validationResults.AddErrors(ValidateFile(stylesheetFile, fldPath.Child("extensionStylesheets").Index(i))...)
-	// }
-
-	nameTaken := map[string]bool{}
-	for i, extConfig := range config.Extensions {
-		idxPath := fldPath.Child("extensions").Index(i)
-		extConfigErrors := ValidateAssetExtensionsConfig(extConfig, idxPath)
-		validationResults.AddErrors(extConfigErrors...)
-		if nameTaken[extConfig.Name] {
-			dupError := field.Invalid(idxPath.Child("name"), extConfig.Name, "duplicate extension name")
-			validationResults.AddErrors(dupError)
-		} else {
-			nameTaken[extConfig.Name] = true
+	for i, stylesheetURL := range config.ExtensionStylesheets {
+		if _, stylesheetURLErrs := ValidateSecureURL(stylesheetURL, fldPath.Child("extensionStylesheets").Index(i)); len(stylesheetURLErrs) > 0 {
+			validationResults.AddErrors(stylesheetURLErrs...)
 		}
 	}
 
 	return validationResults
-}
-
-var extNameExp = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
-
-func ValidateAssetExtensionsConfig(extConfig v1.AssetExtensionsConfig, fldPath *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
-
-	allErrs = append(allErrs, ValidateDir(extConfig.SourceDirectory, fldPath.Child("sourceDirectory"))...)
-
-	if len(extConfig.Name) == 0 {
-		allErrs = append(allErrs, field.Required(fldPath.Child("name"), ""))
-	} else if !extNameExp.MatchString(extConfig.Name) {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("name"), extConfig.Name, fmt.Sprintf("does not match %v", extNameExp)))
-	}
-
-	return allErrs
 }
