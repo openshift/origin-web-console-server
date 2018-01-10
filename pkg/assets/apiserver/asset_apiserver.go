@@ -18,10 +18,10 @@ import (
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	kversion "k8s.io/kubernetes/pkg/version"
 
+	"github.com/openshift/api/webconsole/v1"
 	"github.com/openshift/origin-web-console-server/pkg/assets"
 	"github.com/openshift/origin-web-console-server/pkg/assets/java"
 	"github.com/openshift/origin/pkg/api"
-	oapi "github.com/openshift/origin/pkg/cmd/server/api"
 	oauthutil "github.com/openshift/origin/pkg/oauth/util"
 	"github.com/openshift/origin/pkg/util/httprequest"
 	oversion "github.com/openshift/origin/pkg/version"
@@ -32,7 +32,7 @@ const (
 )
 
 type ExtraConfig struct {
-	Options   oapi.AssetConfig
+	Options   v1.WebConsoleConfiguration
 	PublicURL url.URL
 }
 
@@ -58,7 +58,7 @@ type CompletedConfig struct {
 	*completedConfig
 }
 
-func NewAssetServerConfig(assetConfig oapi.AssetConfig) (*AssetServerConfig, error) {
+func NewAssetServerConfig(assetConfig v1.WebConsoleConfiguration) (*AssetServerConfig, error) {
 	publicURL, err := url.Parse(assetConfig.PublicURL)
 	if err != nil {
 		return nil, err

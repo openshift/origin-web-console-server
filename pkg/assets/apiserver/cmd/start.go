@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
+	"path"
 	"strconv"
 
 	"github.com/golang/glog"
@@ -12,19 +13,21 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericapiserveroptions "k8s.io/apiserver/pkg/server/options"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 	utilflag "k8s.io/apiserver/pkg/util/flag"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/util"
 
+	"github.com/openshift/api/webconsole/v1"
+	webconsoleapiutil "github.com/openshift/origin-web-console-server/pkg/apis/webconsole/util"
+	localwebconsolev1 "github.com/openshift/origin-web-console-server/pkg/apis/webconsole/v1"
+	"github.com/openshift/origin-web-console-server/pkg/apis/webconsole/validation"
 	webconsoleserver "github.com/openshift/origin-web-console-server/pkg/assets/apiserver"
-	configapi "github.com/openshift/origin/pkg/cmd/server/api"
-	configapiinstall "github.com/openshift/origin/pkg/cmd/server/api/install"
-	configapivalidation "github.com/openshift/origin/pkg/cmd/server/api/validation"
 	"github.com/openshift/origin/pkg/cmd/server/crypto"
-	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 type WebConsoleServerOptions struct {
@@ -35,7 +38,7 @@ type WebConsoleServerOptions struct {
 	StdOut io.Writer
 	StdErr io.Writer
 
-	WebConsoleConfig *configapi.AssetConfig
+	WebConsoleConfig *v1.WebConsoleConfiguration
 }
 
 func NewWebConsoleServerOptions(out, errOut io.Writer) *WebConsoleServerOptions {
@@ -84,14 +87,14 @@ func (o WebConsoleServerOptions) Validate(args []string) error {
 		return fmt.Errorf("missing config: specify --config")
 	}
 
-	validationResults := configapivalidation.ValidateAssetConfig(o.WebConsoleConfig, field.NewPath("config"))
+	validationResults := validation.ValidateWebConsoleConfiguration(o.WebConsoleConfig, field.NewPath("config"))
 	if len(validationResults.Warnings) != 0 {
 		for _, warning := range validationResults.Warnings {
 			glog.Warningf("Warning: %v, web console start will continue.", warning)
 		}
 	}
 	if len(validationResults.Errors) != 0 {
-		return apierrors.NewInvalid(configapi.Kind("AssetConfig"), "", validationResults.Errors)
+		return apierrors.NewInvalid(schema.GroupKind{Group: "webconsole.config.openshift.io", Kind: "AssetConfig"}, "", validationResults.Errors)
 	}
 
 	return nil
@@ -108,10 +111,15 @@ func (o *WebConsoleServerOptions) Complete(cmd *cobra.Command) error {
 		if err != nil {
 			return err
 		}
-		config, ok := configObj.(*configapi.AssetConfig)
+		config, ok := configObj.(*v1.WebConsoleConfiguration)
 		if !ok {
 			return fmt.Errorf("unexpected type: %T", configObj)
 		}
+
+		// TODO we have no codegeneration at the moment, so manually apply defaults
+		localwebconsolev1.SetDefaults_WebConsoleConfiguration(config)
+		webconsoleapiutil.ResolveWebConsoleConfigurationPaths(config, path.Dir(configFile))
+
 		o.WebConsoleConfig = config
 	}
 
@@ -146,8 +154,8 @@ func (o WebConsoleServerOptions) Config() (*webconsoleserver.AssetServerConfig, 
 
 		ServerCert: genericapiserveroptions.GeneratableKeyCert{
 			CertKey: genericapiserveroptions.CertKey{
-				CertFile: o.WebConsoleConfig.ServingInfo.ServerCert.CertFile,
-				KeyFile:  o.WebConsoleConfig.ServingInfo.ServerCert.KeyFile,
+				CertFile: o.WebConsoleConfig.ServingInfo.CertFile,
+				KeyFile:  o.WebConsoleConfig.ServingInfo.KeyFile,
 			},
 		},
 		SNICertKeys: sniCertKeys,
@@ -197,5 +205,5 @@ var (
 )
 
 func init() {
-	configapiinstall.AddToScheme(configScheme)
+	v1.AddToScheme(configScheme)
 }

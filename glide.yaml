@@ -4,3 +4,5 @@ import:
   version: a0ff2567cfb70903282db057e799fd826784d41d
 - package: github.com/openshift/origin
   version: dc731508b6a5e6f9c26cace6b4663716f6327e97
+- package: github.com/openshift/api
+  version: master
