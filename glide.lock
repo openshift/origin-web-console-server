@@ -1,5 +1,5 @@
-hash: 1ba6f3d5e84734976a273e8340ccd5a0090b45221d1eab69f8f36d10ababf83b
-updated: 2018-01-03T09:47:46.406020394-05:00
+hash: ba978c6f0426a7372d1d3930d35cc0ca232532bb4565f4aa66ab4e8b52c7ef39
+updated: 2018-01-10T11:57:52.694434318-05:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -514,7 +514,7 @@ imports:
   - go-selinux
   - go-selinux/label
 - name: github.com/openshift/api
-  version: 3d85da175a2137c582afc6feb4253ea369b87215
+  version: fca5e622f16c2a93fab9669cfacc0cefc10eb751
   subpackages:
   - apps/v1
   - authorization/v1
@@ -705,6 +705,8 @@ imports:
   - sftp
 - name: github.com/spf13/cobra
   version: f62e98d28ab7ad31d707ba837a966378465c7b57
+  subpackages:
+  - doc
 - name: github.com/spf13/pflag
   version: 9ff6c6923cfffbcd502984b8e0c80539a94968b7
 - name: github.com/square/go-jose
@@ -1077,6 +1079,7 @@ imports:
   - pkg/util/feature
   - pkg/util/flag
   - pkg/util/flushwriter
+  - pkg/util/logs
   - pkg/util/trace
   - pkg/util/webhook
   - pkg/util/wsstream
@@ -1251,7 +1254,6 @@ imports:
   - cmd/kube-controller-manager/app
   - cmd/kube-controller-manager/app/options
   - cmd/kubelet/app/options
-  - pkg/api
   - pkg/api/endpoints
   - pkg/api/events
   - pkg/api/legacyscheme
