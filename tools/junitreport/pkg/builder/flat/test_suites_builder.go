@@ -1,8 +1,8 @@
 package flat
 
 import (
-	"github.com/openshift/origin/tools/junitreport/pkg/api"
-	"github.com/openshift/origin/tools/junitreport/pkg/builder"
+	"github.com/openshift/origin-web-console-server/tools/junitreport/pkg/api"
+	"github.com/openshift/origin-web-console-server/tools/junitreport/pkg/builder"
 )
 
 // NewTestSuitesBuilder returns a new flat test suites builder. All test suites consumed
