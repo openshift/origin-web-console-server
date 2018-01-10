@@ -20,7 +20,6 @@ import (
 	genericapiserveroptions "k8s.io/apiserver/pkg/server/options"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 	utilflag "k8s.io/apiserver/pkg/util/flag"
-	"k8s.io/kubernetes/pkg/kubectl/cmd/util"
 
 	"github.com/openshift/api/webconsole/v1"
 	webconsoleapiutil "github.com/openshift/origin-web-console-server/pkg/apis/webconsole/util"
@@ -101,7 +100,10 @@ func (o WebConsoleServerOptions) Validate(args []string) error {
 }
 
 func (o *WebConsoleServerOptions) Complete(cmd *cobra.Command) error {
-	configFile := util.GetFlagString(cmd, "config")
+	configFile, err := cmd.Flags().GetString("config")
+	if err != nil {
+		return err
+	}
 	if len(configFile) > 0 {
 		content, err := ioutil.ReadFile(configFile)
 		if err != nil {
