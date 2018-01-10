@@ -109,7 +109,7 @@ func (o *WebConsoleServerOptions) Complete(cmd *cobra.Command) error {
 		if err != nil {
 			return err
 		}
-		configObj, err := runtime.Decode(configCodecs.UniversalDecoder(), content)
+		configObj, err := runtime.Decode(configCodecs.UniversalDecoder(v1.SchemeGroupVersion, schema.GroupVersion{Group: "", Version: "v1"}), content)
 		if err != nil {
 			return err
 		}
@@ -208,4 +208,5 @@ var (
 
 func init() {
 	v1.AddToScheme(configScheme)
+	configScheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "", Version: "v1", Kind: "AssetConfig"}, &v1.WebConsoleConfiguration{})
 }
