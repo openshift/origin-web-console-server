@@ -1,17 +1,19 @@
 package apiserver
 
 import (
-	"net"
 	"net/http"
 	"net/url"
 	"path"
-	"strconv"
-	"time"
-
-	"github.com/golang/glog"
+	"strings"
 
 	"github.com/elazarl/go-bindata-assetfs"
 
+	"k8s.io/apimachinery/pkg/apimachinery/announced"
+	"k8s.io/apimachinery/pkg/apimachinery/registered"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/features"
@@ -19,33 +21,50 @@ import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
 	genericmux "k8s.io/apiserver/pkg/server/mux"
-	genericapiserveroptions "k8s.io/apiserver/pkg/server/options"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	utilflag "k8s.io/apiserver/pkg/util/flag"
-	kapi "k8s.io/kubernetes/pkg/api"
-	kversion "k8s.io/kubernetes/pkg/version"
 
+	"github.com/openshift/api/webconsole/v1"
 	"github.com/openshift/origin-web-console-server/pkg/assets"
 	"github.com/openshift/origin-web-console-server/pkg/assets/java"
-	"github.com/openshift/origin/pkg/api"
-	oapi "github.com/openshift/origin/pkg/cmd/server/api"
-	"github.com/openshift/origin/pkg/cmd/server/crypto"
-	cmdutil "github.com/openshift/origin/pkg/cmd/util"
-	oauthutil "github.com/openshift/origin/pkg/oauth/util"
-	"github.com/openshift/origin/pkg/util/httprequest"
-	oversion "github.com/openshift/origin/pkg/version"
+	"github.com/openshift/origin-web-console-server/pkg/version"
 )
+
+var (
+	groupFactoryRegistry = make(announced.APIGroupFactoryRegistry)
+	registry             = registered.NewOrDie("")
+	scheme               = runtime.NewScheme()
+	codecs               = serializer.NewCodecFactory(scheme)
+
+	// if you modify this, make sure you update the crEncoder
+	unversionedVersion = schema.GroupVersion{Group: "", Version: "v1"}
+	unversionedTypes   = []runtime.Object{
+		&metav1.Status{},
+		&metav1.WatchEvent{},
+		&metav1.APIVersions{},
+		&metav1.APIGroupList{},
+		&metav1.APIGroup{},
+		&metav1.APIResourceList{},
+	}
+)
+
+func init() {
+	// we need to add the options to empty v1
+	metav1.AddToGroupVersion(scheme, schema.GroupVersion{Group: "", Version: "v1"})
+	scheme.AddUnversionedTypes(unversionedVersion, unversionedTypes...)
+}
 
 const (
 	OpenShiftWebConsoleClientID = "openshift-web-console"
 )
 
-type AssetServerConfig struct {
-	GenericConfig *genericapiserver.Config
-
-	Options oapi.AssetConfig
-
+type ExtraConfig struct {
+	Options   v1.WebConsoleConfiguration
 	PublicURL url.URL
+}
+
+type AssetServerConfig struct {
+	GenericConfig *genericapiserver.RecommendedConfig
+	ExtraConfig   ExtraConfig
 }
 
 // AssetServer serves non-API endpoints for openshift.
@@ -55,87 +74,59 @@ type AssetServer struct {
 	PublicURL url.URL
 }
 
-type completedAssetServerConfig struct {
-	*AssetServerConfig
+type completedConfig struct {
+	GenericConfig genericapiserver.CompletedConfig
+	ExtraConfig   *ExtraConfig
 }
 
-func NewAssetServerConfig(assetConfig oapi.AssetConfig) (*AssetServerConfig, error) {
+type CompletedConfig struct {
+	// Embed a private pointer that cannot be instantiated outside of this package.
+	*completedConfig
+}
+
+func NewAssetServerConfig(assetConfig v1.WebConsoleConfiguration) (*AssetServerConfig, error) {
 	publicURL, err := url.Parse(assetConfig.PublicURL)
 	if err != nil {
-		glog.Fatal(err)
-	}
-	_, portString, err := net.SplitHostPort(assetConfig.ServingInfo.BindAddress)
-	if err != nil {
 		return nil, err
-	}
-	port, err := strconv.Atoi(portString)
-	if err != nil {
-		return nil, err
-	}
-	secureServingOptions := genericapiserveroptions.NewSecureServingOptions()
-	secureServingOptions.BindPort = port
-	secureServingOptions.ServerCert.CertKey.CertFile = assetConfig.ServingInfo.ServerCert.CertFile
-	secureServingOptions.ServerCert.CertKey.KeyFile = assetConfig.ServingInfo.ServerCert.KeyFile
-	for _, nc := range assetConfig.ServingInfo.NamedCertificates {
-		sniCert := utilflag.NamedCertKey{
-			CertFile: nc.CertFile,
-			KeyFile:  nc.KeyFile,
-			Names:    nc.Names,
-		}
-		secureServingOptions.SNICertKeys = append(secureServingOptions.SNICertKeys, sniCert)
 	}
 
-	genericConfig := genericapiserver.NewConfig(kapi.Codecs)
+	genericConfig := genericapiserver.NewConfig(codecs)
 	genericConfig.EnableDiscovery = false
 	genericConfig.BuildHandlerChainFunc = buildHandlerChainForAssets(publicURL.Path)
-	if err := secureServingOptions.ApplyTo(genericConfig); err != nil {
-		return nil, err
-	}
-	genericConfig.SecureServingInfo.BindAddress = assetConfig.ServingInfo.BindAddress
-	genericConfig.SecureServingInfo.BindNetwork = assetConfig.ServingInfo.BindNetwork
-	genericConfig.SecureServingInfo.MinTLSVersion = crypto.TLSVersionOrDie(assetConfig.ServingInfo.MinTLSVersion)
-	genericConfig.SecureServingInfo.CipherSuites = crypto.CipherSuitesOrDie(assetConfig.ServingInfo.CipherSuites)
 
 	return &AssetServerConfig{
-		GenericConfig: genericConfig,
-		Options:       assetConfig,
-		PublicURL:     *publicURL,
+		GenericConfig: &genericapiserver.RecommendedConfig{Config: *genericConfig},
+		ExtraConfig: ExtraConfig{
+			Options:   assetConfig,
+			PublicURL: *publicURL,
+		},
 	}, nil
 }
 
 // Complete fills in any fields not set that are required to have valid data. It's mutating the receiver.
-func (c *AssetServerConfig) Complete() completedAssetServerConfig {
-	c.GenericConfig.Complete()
+func (c *AssetServerConfig) Complete() completedConfig {
+	cfg := completedConfig{
+		c.GenericConfig.Complete(),
+		&c.ExtraConfig,
+	}
 
-	return completedAssetServerConfig{c}
+	return cfg
 }
 
-// SkipComplete provides a way to construct a server instance without config completion.
-func (c *AssetServerConfig) SkipComplete() completedAssetServerConfig {
-	return completedAssetServerConfig{c}
-}
-
-func (c completedAssetServerConfig) New(delegationTarget genericapiserver.DelegationTarget) (*AssetServer, error) {
-	genericServer, err := c.AssetServerConfig.GenericConfig.SkipComplete().New("openshift-non-api-routes", delegationTarget) // completion is done in Complete, no need for a second time
+func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget) (*AssetServer, error) {
+	genericServer, err := c.GenericConfig.New("origin-web-console-server", delegationTarget)
 	if err != nil {
 		return nil, err
 	}
 
 	s := &AssetServer{
 		GenericAPIServer: genericServer,
-		PublicURL:        c.PublicURL,
+		PublicURL:        c.ExtraConfig.PublicURL,
 	}
 
 	if err := c.addAssets(s.GenericAPIServer.Handler.NonGoRestfulMux); err != nil {
 		return nil, err
 	}
-	if err := c.addExtensionScripts(s.GenericAPIServer.Handler.NonGoRestfulMux); err != nil {
-		return nil, err
-	}
-	if err := c.addExtensionStyleSheets(s.GenericAPIServer.Handler.NonGoRestfulMux); err != nil {
-		return nil, err
-	}
-	c.addExtensionFiles(s.GenericAPIServer.Handler.NonGoRestfulMux)
 	if err := c.addWebConsoleConfig(s.GenericAPIServer.Handler.NonGoRestfulMux); err != nil {
 		return nil, err
 	}
@@ -162,54 +153,19 @@ func buildHandlerChainForAssets(consoleRedirectPath string) func(startingHandler
 	}
 }
 
-func (c completedAssetServerConfig) addAssets(serverMux *genericmux.PathRecorderMux) error {
+func (c completedConfig) addAssets(serverMux *genericmux.PathRecorderMux) error {
 	assetHandler, err := c.buildAssetHandler()
 	if err != nil {
 		return err
 	}
 
-	serverMux.UnlistedHandlePrefix(c.PublicURL.Path, http.StripPrefix(c.PublicURL.Path, assetHandler))
-	serverMux.UnlistedHandle(c.PublicURL.Path[0:len(c.PublicURL.Path)-1], http.RedirectHandler(c.PublicURL.Path, http.StatusMovedPermanently))
+	serverMux.UnlistedHandlePrefix(c.ExtraConfig.PublicURL.Path, http.StripPrefix(c.ExtraConfig.PublicURL.Path, assetHandler))
+	serverMux.UnlistedHandle(c.ExtraConfig.PublicURL.Path[0:len(c.ExtraConfig.PublicURL.Path)-1], http.RedirectHandler(c.ExtraConfig.PublicURL.Path, http.StatusMovedPermanently))
 	return nil
 }
 
-func (c completedAssetServerConfig) addExtensionScripts(serverMux *genericmux.PathRecorderMux) error {
-	// Extension scripts
-	extScriptsPath := path.Join(c.PublicURL.Path, "scripts/extensions.js")
-	extScriptsHandler, err := assets.ExtensionScriptsHandler(c.Options.ExtensionScripts, c.Options.ExtensionDevelopment)
-	if err != nil {
-		return err
-	}
-	extScriptsHandler = assets.SecurityHeadersHandler(extScriptsHandler)
-	serverMux.UnlistedHandle(extScriptsPath, assets.GzipHandler(extScriptsHandler))
-	return nil
-}
-
-func (c completedAssetServerConfig) addExtensionStyleSheets(serverMux *genericmux.PathRecorderMux) error {
-	// Extension stylesheets
-	extStylesheetsPath := path.Join(c.PublicURL.Path, "styles/extensions.css")
-	extStylesheetsHandler, err := assets.ExtensionStylesheetsHandler(c.Options.ExtensionStylesheets, c.Options.ExtensionDevelopment)
-	if err != nil {
-		return err
-	}
-	extStylesheetsHandler = assets.SecurityHeadersHandler(extStylesheetsHandler)
-	serverMux.UnlistedHandle(extStylesheetsPath, assets.GzipHandler(extStylesheetsHandler))
-	return nil
-}
-
-func (c completedAssetServerConfig) addExtensionFiles(serverMux *genericmux.PathRecorderMux) {
-	// Extension files
-	for _, extConfig := range c.Options.Extensions {
-		extBasePath := path.Join(c.PublicURL.Path, "extensions", extConfig.Name)
-		extPath := extBasePath + "/"
-		extHandler := assets.AssetExtensionHandler(extConfig.SourceDirectory, extPath, extConfig.HTML5Mode)
-		serverMux.UnlistedHandlePrefix(extPath, http.StripPrefix(extBasePath, extHandler))
-		serverMux.UnlistedHandle(extBasePath, http.RedirectHandler(extPath, http.StatusMovedPermanently))
-	}
-}
-
-func (c *completedAssetServerConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorderMux) error {
-	masterURL, err := url.Parse(c.Options.MasterPublicURL)
+func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorderMux) error {
+	masterURL, err := url.Parse(c.ExtraConfig.Options.MasterPublicURL)
 	if err != nil {
 		return err
 	}
@@ -219,28 +175,29 @@ func (c *completedAssetServerConfig) addWebConsoleConfig(serverMux *genericmux.P
 		APIGroupAddr:      masterURL.Host,
 		APIGroupPrefix:    server.APIGroupPrefix,
 		MasterAddr:        masterURL.Host,
-		MasterPrefix:      api.Prefix,
+		MasterPrefix:      "/oapi",
 		KubernetesAddr:    masterURL.Host,
 		KubernetesPrefix:  server.DefaultLegacyAPIPrefix,
-		OAuthAuthorizeURI: oauthutil.OpenShiftOAuthAuthorizeURL(masterURL.String()),
-		OAuthTokenURI:     oauthutil.OpenShiftOAuthTokenURL(masterURL.String()),
-		OAuthRedirectBase: c.Options.PublicURL,
+		OAuthAuthorizeURI: openShiftOAuthAuthorizeURL(masterURL.String()),
+		OAuthTokenURI:     openShiftOAuthTokenURL(masterURL.String()),
+		OAuthRedirectBase: c.ExtraConfig.Options.PublicURL,
 		OAuthClientID:     OpenShiftWebConsoleClientID,
-		LogoutURI:         c.Options.LogoutURL,
-		LoggingURL:        c.Options.LoggingPublicURL,
-		MetricsURL:        c.Options.MetricsPublicURL,
+		LogoutURI:         c.ExtraConfig.Options.LogoutURL,
+		LoggingURL:        c.ExtraConfig.Options.LoggingPublicURL,
+		MetricsURL:        c.ExtraConfig.Options.MetricsPublicURL,
 	}
-	kVersionInfo := kversion.Get()
-	oVersionInfo := oversion.Get()
+
+	// TODO this looks incorrect.  I'm guessing that we need to contact the master and locate the actual versions
+	oVersionInfo := version.Get()
 	versionInfo := assets.WebConsoleVersion{
-		KubernetesVersion: kVersionInfo.GitVersion,
+		KubernetesVersion: oVersionInfo.GitVersion,
 		OpenShiftVersion:  oVersionInfo.GitVersion,
 	}
 
 	extensionProps := assets.WebConsoleExtensionProperties{
-		ExtensionProperties: extensionPropertyArray(c.Options.ExtensionProperties),
+		ExtensionProperties: extensionPropertyArray(c.ExtraConfig.Options.ExtensionProperties),
 	}
-	configPath := path.Join(c.PublicURL.Path, "config.js")
+	configPath := path.Join(c.ExtraConfig.PublicURL.Path, "config.js")
 	configHandler, err := assets.GeneratedConfigHandler(config, versionInfo, extensionProps)
 	configHandler = assets.SecurityHeadersHandler(configHandler)
 	if err != nil {
@@ -251,7 +208,7 @@ func (c *completedAssetServerConfig) addWebConsoleConfig(serverMux *genericmux.P
 	return nil
 }
 
-func (c completedAssetServerConfig) buildAssetHandler() (http.Handler, error) {
+func (c completedConfig) buildAssetHandler() (http.Handler, error) {
 	assets.RegisterMimeTypes()
 
 	assetFunc := assets.JoinAssetFuncs(assets.Asset, java.Asset)
@@ -266,14 +223,14 @@ func (c completedAssetServerConfig) buildAssetHandler() (http.Handler, error) {
 	}
 
 	var err error
-	handler, err = assets.HTML5ModeHandler(c.PublicURL.Path, subcontextMap, handler, assetFunc)
+	handler, err = assets.HTML5ModeHandler(c.ExtraConfig.PublicURL.Path, subcontextMap, c.ExtraConfig.Options.ExtensionScripts, c.ExtraConfig.Options.ExtensionStylesheets, handler, assetFunc)
 	if err != nil {
 		return nil, err
 	}
 
 	// Cache control should happen after all Vary headers are added, but before
 	// any asset related routing (HTML5ModeHandler and FileServer)
-	handler = assets.CacheControlHandler(oversion.Get().GitCommit, handler)
+	handler = assets.CacheControlHandler(version.Get().GitCommit, handler)
 
 	handler = assets.SecurityHeadersHandler(handler)
 
@@ -296,28 +253,31 @@ func extensionPropertyArray(extensionProperties map[string]string) []assets.WebC
 	return extensionPropsArray
 }
 
-// Run starts an http server for the static assets listening on the configured
-// bind address
-func RunAssetServer(assetServer *AssetServer, stopCh <-chan struct{}) error {
-	go assetServer.GenericAPIServer.PrepareRun().Run(stopCh)
-
-	glog.Infof("Web console listening at https://%s", assetServer.GenericAPIServer.SecureServingInfo.BindAddress)
-	glog.Infof("Web console available at %s", assetServer.PublicURL.String())
-
-	// Attempt to verify the server came up for 20 seconds (100 tries * 100ms, 100ms timeout per try)
-	return cmdutil.WaitForSuccessfulDial(true, assetServer.GenericAPIServer.SecureServingInfo.BindNetwork, assetServer.GenericAPIServer.SecureServingInfo.BindAddress, 100*time.Millisecond, 100*time.Millisecond, 100)
-}
-
 // If we know the location of the asset server, redirect to it when / is requested
 // and the Accept header supports text/html
+// This should *only* be hit with browser, so just unconditionally redirect
 func WithAssetServerRedirect(handler http.Handler, assetPublicURL string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/" {
-			if httprequest.PrefersHTML(req) {
-				http.Redirect(w, req, assetPublicURL, http.StatusFound)
-			}
+			http.Redirect(w, req, assetPublicURL, http.StatusFound)
 		}
 		// Dispatch to the next handler
 		handler.ServeHTTP(w, req)
 	})
+}
+
+const (
+	OpenShiftOAuthAPIPrefix = "/oauth"
+	AuthorizePath           = "/authorize"
+	TokenPath               = "/token"
+)
+
+func openShiftOAuthAuthorizeURL(masterAddr string) string {
+	return openShiftOAuthURL(masterAddr, AuthorizePath)
+}
+func openShiftOAuthTokenURL(masterAddr string) string {
+	return openShiftOAuthURL(masterAddr, TokenPath)
+}
+func openShiftOAuthURL(masterAddr, oauthEndpoint string) string {
+	return strings.TrimRight(masterAddr, "/") + path.Join(OpenShiftOAuthAPIPrefix, oauthEndpoint)
 }

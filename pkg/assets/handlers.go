@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"path"
@@ -13,7 +14,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/openshift/origin/pkg/quota/admission/clusterresourceoverride/api"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
@@ -112,7 +113,7 @@ func (s LongestToShortest) Less(i, j int) bool {
 //
 // subcontextMap is a map of keys (subcontexts, no leading or trailing slashes) to the asset path (no
 // leading slash) to serve for that subcontext if a resource that does not exist is requested
-func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, h http.Handler, getAsset AssetFunc) (http.Handler, error) {
+func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, extensionScripts []string, extensionStylesheets []string, h http.Handler, getAsset AssetFunc) (http.Handler, error) {
 	subcontextData := map[string][]byte{}
 	subcontexts := []string{}
 
@@ -127,6 +128,17 @@ func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, h htt
 			base += "/"
 		}
 		b = bytes.Replace(b, []byte(`<base href="/">`), []byte(fmt.Sprintf(`<base href="%s">`, base)), 1)
+
+		// Inject extension scripts and stylesheets, but only for the console itself, which has an empty subcontext
+		if len(subcontext) == 0 {
+			if len(extensionScripts) > 0 {
+				b = addExtensionScripts(b, extensionScripts)
+			}
+			if len(extensionStylesheets) > 0 {
+				b = addExtensionStylesheets(b, extensionStylesheets)
+			}
+		}
+
 		subcontextData[subcontext] = b
 		subcontexts = append(subcontexts, subcontext)
 	}
@@ -151,6 +163,30 @@ func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, h htt
 		}
 		h.ServeHTTP(w, r)
 	}), nil
+}
+
+// Add the extension scripts as the last scripts, just before the body closing tag.
+func addExtensionScripts(content []byte, extensionScripts []string) []byte {
+	var scriptTags bytes.Buffer
+	for _, scriptURL := range extensionScripts {
+		scriptTags.WriteString(fmt.Sprintf("<script src=\"%s\"></script>\n", html.EscapeString(scriptURL)))
+	}
+
+	replaceBefore := []byte("</body>")
+	scriptTags.Write(replaceBefore)
+	return bytes.Replace(content, replaceBefore, scriptTags.Bytes(), 1)
+}
+
+// Add the extension stylesheets as the last stylesheets, just before the head closing tag.
+func addExtensionStylesheets(content []byte, extensionStylesheets []string) []byte {
+	var styleTags bytes.Buffer
+	for _, stylesheetURL := range extensionStylesheets {
+		styleTags.WriteString(fmt.Sprintf("<link rel=\"stylesheet\" href=\"%s\">\n", html.EscapeString(stylesheetURL)))
+	}
+
+	replaceBefore := []byte("</head>")
+	styleTags.Write(replaceBefore)
+	return bytes.Replace(content, replaceBefore, styleTags.Bytes(), 1)
 }
 
 var versionTemplate = template.Must(template.New("webConsoleVersion").Parse(`
@@ -249,7 +285,24 @@ type WebConsoleConfig struct {
 	//   LimitCPUToMemoryPercent
 	//   CPURequestToLimitPercent
 	//   MemoryRequestToLimitPercent
-	LimitRequestOverrides *api.ClusterResourceOverrideConfig
+	LimitRequestOverrides *ClusterResourceOverrideConfig
+}
+
+// ClusterResourceOverrideConfig is the configuration for the ClusterResourceOverride
+// admission controller which overrides user-provided container request/limit values.
+type ClusterResourceOverrideConfig struct {
+	metav1.TypeMeta
+	// For each of the following, if a non-zero ratio is specified then the initial
+	// value (if any) in the pod spec is overwritten according to the ratio.
+	// LimitRange defaults are merged prior to the override.
+	//
+	// LimitCPUToMemoryPercent (if > 0) overrides the CPU limit to a ratio of the memory limit;
+	// 100% overrides CPU to 1 core per 1GiB of RAM. This is done before overriding the CPU request.
+	LimitCPUToMemoryPercent int64
+	// CPURequestToLimitPercent (if > 0) overrides CPU request to a percentage of CPU limit
+	CPURequestToLimitPercent int64
+	// MemoryRequestToLimitPercent (if > 0) overrides memory request to a percentage of memory limit
+	MemoryRequestToLimitPercent int64
 }
 
 func GeneratedConfigHandler(config WebConsoleConfig, version WebConsoleVersion, extensionProps WebConsoleExtensionProperties) (http.Handler, error) {

@@ -20,20 +20,20 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"unicode"
 
-	"github.com/emicklei/go-restful"
+	restful "github.com/emicklei/go-restful"
 	"github.com/go-openapi/spec"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apiserver/pkg/util/trie"
-	"sort"
+	"k8s.io/kube-openapi/pkg/util"
 )
 
-var verbs = trie.New([]string{"get", "log", "read", "replace", "patch", "delete", "deletecollection", "watch", "connect", "proxy", "list", "create", "patch"})
+var verbs = util.NewTrie([]string{"get", "log", "read", "replace", "patch", "delete", "deletecollection", "watch", "connect", "proxy", "list", "create", "patch"})
 
 const (
 	extensionGVK = "x-kubernetes-group-version-kind"
@@ -63,10 +63,6 @@ func GetOperationIDAndTags(r *restful.Route) (string, []string, error) {
 	op := r.Operation
 	path := r.Path
 	var tags []string
-	// FIXME: this is hacky way to get rid of conflict name
-	if strings.HasPrefix(path, "/oapi/v1/namespaces/{namespace}/deploymentconfigs/{name}/rollback") {
-		op = op + "Rollback"
-	}
 	prefix, exists := verbs.GetPrefix(op)
 	if !exists {
 		return op, tags, fmt.Errorf("operation names should start with a verb. Cannot determine operation verb from %v", op)
@@ -139,14 +135,11 @@ func friendlyName(name string) string {
 }
 
 func typeName(t reflect.Type) string {
-	return canonicalName(fmt.Sprintf("%s.%s", t.PkgPath(), t.Name()))
-}
-
-func canonicalName(name string) string {
-	if i := strings.LastIndex(name, "/vendor/"); i != -1 {
-		return name[i+len("/vendor/"):]
+	path := t.PkgPath()
+	if strings.Contains(path, "/vendor/") {
+		path = path[strings.Index(path, "/vendor/")+len("/vendor/"):]
 	}
-	return name
+	return fmt.Sprintf("%s.%s", path, t.Name())
 }
 
 // NewDefinitionNamer constructs a new DefinitionNamer to be used to customize OpenAPI spec.
@@ -165,7 +158,6 @@ func NewDefinitionNamer(s *runtime.Scheme) DefinitionNamer {
 
 // GetDefinitionName returns the name and tags for a given definition
 func (d *DefinitionNamer) GetDefinitionName(name string) (string, spec.Extensions) {
-	name = canonicalName(name)
 	if groupVersionKinds, ok := d.typeGroupVersionKinds[name]; ok {
 		return friendlyName(name), spec.Extensions{
 			extensionGVK: []v1.GroupVersionKind(groupVersionKinds),
