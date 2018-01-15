@@ -249,7 +249,8 @@ window.OPENSHIFT_CONFIG = {
   {{ end }}
   loggingURL: "{{ .LoggingURL | js}}",
   metricsURL: "{{ .MetricsURL | js}}",
-  templateServiceBrokerEnabled: {{ .TemplateServiceBrokerEnabled }}
+  templateServiceBrokerEnabled: {{ .TemplateServiceBrokerEnabled }},
+  inactivityTimeoutMinutes: {{ .InactivityTimeoutMinutes }}
 };
 `))
 
@@ -289,6 +290,9 @@ type WebConsoleConfig struct {
 	LimitRequestOverrides *ClusterResourceOverrideConfig
 	// TemplateServiceBrokerEnabled tells the web console not to show normal templates to avoid duplicates items in the catalog for templates and template service broker service classes.
 	TemplateServiceBrokerEnabled bool
+	// InactivityTimeoutMinutes is the number of minutes of inactivity before you are automatically logged out of
+	// the web console. If set to 0, inactivity timeout is disabled.
+	InactivityTimeoutMinutes int64
 }
 
 // ClusterResourceOverrideConfig is the configuration for the ClusterResourceOverride

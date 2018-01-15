@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"fmt"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -8,12 +9,18 @@ import (
 	"github.com/openshift/api/webconsole/v1"
 )
 
+// MinimumInactivityTimeoutMinutes defines the the smallest value allowed for InactivityTimeoutMinutes if not set to 0,
+// which disables the feature.
+const MinimumInactivityTimeoutMinutes = 5
+
+// ValidateWebConsoleConfiguration validates the web console configuration properties.
 func ValidateWebConsoleConfiguration(config *v1.WebConsoleConfiguration, fldPath *field.Path) ValidationResults {
 	validationResults := ValidationResults{}
 
 	validationResults.Append(ValidateHTTPServingInfo(config.ServingInfo, fldPath.Child("servingInfo")))
 	validationResults.Append(validateClusterInfo(config.ClusterInfo, fldPath.Child("clusterInfo")))
 	validationResults.Append(validateExtensions(config.Extensions, fldPath.Child("extensions")))
+	validationResults.Append(validateFeatures(config.Features, fldPath.Child("features")))
 
 	return validationResults
 }
@@ -74,6 +81,19 @@ func validateExtensions(config v1.ExtensionsConfiguration, fldPath *field.Path) 
 		if _, stylesheetURLErrs := ValidateSecureURL(stylesheetURL, fldPath.Child("stylesheets").Index(i)); len(stylesheetURLErrs) > 0 {
 			validationResults.AddErrors(stylesheetURLErrs...)
 		}
+	}
+
+	return validationResults
+}
+
+func validateFeatures(config v1.FeaturesConfiguration, fldPath *field.Path) ValidationResults {
+	validationResults := ValidationResults{}
+
+	if config.InactivityTimeoutMinutes != 0 && config.InactivityTimeoutMinutes < MinimumInactivityTimeoutMinutes {
+		validationResults.AddErrors(field.Invalid(
+			fldPath.Child("inactivityTimeoutMinutes"),
+			config.InactivityTimeoutMinutes,
+			fmt.Sprintf("the minimum acceptable inactivity timeout value is %d minutes", MinimumInactivityTimeoutMinutes)))
 	}
 
 	return validationResults
