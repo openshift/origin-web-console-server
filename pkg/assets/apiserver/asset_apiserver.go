@@ -245,6 +245,10 @@ func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorder
 		MetricsURL:        c.ExtraConfig.Options.MetricsPublicURL,
 	}
 
+	if c.ExtraConfig.TemplateServiceBrokerEnabled != nil {
+		config.TemplateServiceBrokerEnabled = *c.ExtraConfig.TemplateServiceBrokerEnabled
+	}
+
 	versionInfo := assets.WebConsoleVersion{
 		KubernetesVersion: c.ExtraConfig.KubeVersion,
 		OpenShiftVersion:  c.ExtraConfig.OpenShiftVersion,

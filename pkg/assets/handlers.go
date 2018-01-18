@@ -248,7 +248,8 @@ window.OPENSHIFT_CONFIG = {
   },
   {{ end }}
   loggingURL: "{{ .LoggingURL | js}}",
-  metricsURL: "{{ .MetricsURL | js}}"
+  metricsURL: "{{ .MetricsURL | js}}",
+  templateServiceBrokerEnabled: {{ .TemplateServiceBrokerEnabled }}
 };
 `))
 
@@ -286,6 +287,8 @@ type WebConsoleConfig struct {
 	//   CPURequestToLimitPercent
 	//   MemoryRequestToLimitPercent
 	LimitRequestOverrides *ClusterResourceOverrideConfig
+	// TemplateServiceBrokerEnabled tells the web console not to show normal templates to avoid duplicates items in the catalog for templates and template service broker service classes.
+	TemplateServiceBrokerEnabled bool
 }
 
 // ClusterResourceOverrideConfig is the configuration for the ClusterResourceOverride
