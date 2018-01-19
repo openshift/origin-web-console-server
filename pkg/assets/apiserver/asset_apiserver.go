@@ -98,8 +98,8 @@ type CompletedConfig struct {
 	*completedConfig
 }
 
-func NewAssetServerConfig(assetConfig v1.WebConsoleConfiguration) (*AssetServerConfig, error) {
-	publicURL, err := url.Parse(assetConfig.PublicURL)
+func NewAssetServerConfig(config v1.WebConsoleConfiguration) (*AssetServerConfig, error) {
+	publicURL, err := url.Parse(config.ClusterInfo.ConsolePublicURL)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func NewAssetServerConfig(assetConfig v1.WebConsoleConfiguration) (*AssetServerC
 	return &AssetServerConfig{
 		GenericConfig: &genericapiserver.RecommendedConfig{Config: *genericConfig},
 		ExtraConfig: ExtraConfig{
-			Options:   assetConfig,
+			Options:   config,
 			PublicURL: *publicURL,
 		},
 	}, nil
@@ -223,7 +223,7 @@ func (c completedConfig) addAssets(serverMux *genericmux.PathRecorderMux) error 
 }
 
 func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorderMux) error {
-	masterURL, err := url.Parse(c.ExtraConfig.Options.MasterPublicURL)
+	masterURL, err := url.Parse(c.ExtraConfig.Options.ClusterInfo.MasterPublicURL)
 	if err != nil {
 		return err
 	}
@@ -238,11 +238,11 @@ func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorder
 		KubernetesPrefix:  server.DefaultLegacyAPIPrefix,
 		OAuthAuthorizeURI: openShiftOAuthAuthorizeURL(masterURL.String()),
 		OAuthTokenURI:     openShiftOAuthTokenURL(masterURL.String()),
-		OAuthRedirectBase: c.ExtraConfig.Options.PublicURL,
+		OAuthRedirectBase: c.ExtraConfig.Options.ClusterInfo.ConsolePublicURL,
 		OAuthClientID:     OpenShiftWebConsoleClientID,
-		LogoutURI:         c.ExtraConfig.Options.LogoutURL,
-		LoggingURL:        c.ExtraConfig.Options.LoggingPublicURL,
-		MetricsURL:        c.ExtraConfig.Options.MetricsPublicURL,
+		LogoutURI:         c.ExtraConfig.Options.ClusterInfo.LogoutPublicURL,
+		LoggingURL:        c.ExtraConfig.Options.ClusterInfo.LoggingPublicURL,
+		MetricsURL:        c.ExtraConfig.Options.ClusterInfo.MetricsPublicURL,
 	}
 
 	if c.ExtraConfig.TemplateServiceBrokerEnabled != nil {
@@ -255,7 +255,7 @@ func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorder
 	}
 
 	extensionProps := assets.WebConsoleExtensionProperties{
-		ExtensionProperties: extensionPropertyArray(c.ExtraConfig.Options.ExtensionProperties),
+		ExtensionProperties: extensionPropertyArray(c.ExtraConfig.Options.Extensions.Properties),
 	}
 	configPath := path.Join(c.ExtraConfig.PublicURL.Path, "config.js")
 	configHandler, err := assets.GeneratedConfigHandler(config, versionInfo, extensionProps)
@@ -283,7 +283,7 @@ func (c completedConfig) buildAssetHandler() (http.Handler, error) {
 	}
 
 	var err error
-	handler, err = assets.HTML5ModeHandler(c.ExtraConfig.PublicURL.Path, subcontextMap, c.ExtraConfig.Options.ExtensionScripts, c.ExtraConfig.Options.ExtensionStylesheets, handler, assetFunc)
+	handler, err = assets.HTML5ModeHandler(c.ExtraConfig.PublicURL.Path, subcontextMap, c.ExtraConfig.Options.Extensions.ScriptURLs, c.ExtraConfig.Options.Extensions.StylesheetURLs, handler, assetFunc)
 	if err != nil {
 		return nil, err
 	}

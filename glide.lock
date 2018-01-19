@@ -1,5 +1,5 @@
-hash: 5a4c79815365e8e39f9f5db1dce0f671f7c50b6e18a2b117f0defe8cd77ca349
-updated: 2018-01-10T14:18:57.78800225-05:00
+hash: e23e6fa65b494a2ce1a7de97a14ac4b335f2ebb8c9ac5fc7098a6b660b222f67
+updated: 2018-01-15T11:29:33.946586612-05:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -178,7 +178,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: 7ed662e65c669e569547533a8cb1684c4a22ef4c
+  version: 3477075c1cb46b9635b4fda2fc08237cf37ce200
   subpackages:
   - webconsole/v1
 - name: github.com/pborman/uuid
