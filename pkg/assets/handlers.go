@@ -192,13 +192,15 @@ func addExtensionStylesheets(content []byte, extensionStylesheets []string) []by
 var versionTemplate = template.Must(template.New("webConsoleVersion").Parse(`
 window.OPENSHIFT_VERSION = {
   openshift: "{{ .OpenShiftVersion | js}}",
-  kubernetes: "{{ .KubernetesVersion | js}}"
+  kubernetes: "{{ .KubernetesVersion | js}}",
+  console: "{{ .ConsoleVersion | js }}"
 };
 `))
 
 type WebConsoleVersion struct {
 	KubernetesVersion string
 	OpenShiftVersion  string
+	ConsoleVersion    string
 }
 
 var extensionPropertiesTemplate = template.Must(template.New("webConsoleExtensionProperties").Parse(`

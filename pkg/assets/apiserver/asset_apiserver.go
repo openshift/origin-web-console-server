@@ -253,6 +253,7 @@ func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorder
 	versionInfo := assets.WebConsoleVersion{
 		KubernetesVersion: c.ExtraConfig.KubeVersion,
 		OpenShiftVersion:  c.ExtraConfig.OpenShiftVersion,
+		ConsoleVersion:    builtversion.Get().String(),
 	}
 
 	extensionProps := assets.WebConsoleExtensionProperties{
