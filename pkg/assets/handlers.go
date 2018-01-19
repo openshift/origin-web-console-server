@@ -250,7 +250,8 @@ window.OPENSHIFT_CONFIG = {
   loggingURL: "{{ .LoggingURL | js}}",
   metricsURL: "{{ .MetricsURL | js}}",
   templateServiceBrokerEnabled: {{ .TemplateServiceBrokerEnabled }},
-  inactivityTimeoutMinutes: {{ .InactivityTimeoutMinutes }}
+  inactivityTimeoutMinutes: {{ .InactivityTimeoutMinutes }},
+  clusterResourceOverridesEnabled: {{ .ClusterResourceOverridesEnabled}}
 };
 `))
 
@@ -293,6 +294,10 @@ type WebConsoleConfig struct {
 	// InactivityTimeoutMinutes is the number of minutes of inactivity before you are automatically logged out of
 	// the web console. If set to 0, inactivity timeout is disabled.
 	InactivityTimeoutMinutes int64
+	// ClusterResourceOverridesEnabled indicates that the cluster is configured for overcommit. When set to
+	// true, the web console will hide the CPU request, CPU limit, and memory request fields in its editors
+	// and skip validation on those fields. The memory limit field will still be displayed.
+	ClusterResourceOverridesEnabled bool
 }
 
 // ClusterResourceOverrideConfig is the configuration for the ClusterResourceOverride
