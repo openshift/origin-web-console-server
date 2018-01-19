@@ -27,6 +27,7 @@ import (
 	"github.com/openshift/origin-web-console-server/pkg/apis/webconsole/validation"
 	webconsoleserver "github.com/openshift/origin-web-console-server/pkg/assets/apiserver"
 	"github.com/openshift/origin-web-console-server/pkg/origin-common/crypto"
+	builtversion "github.com/openshift/origin-web-console-server/pkg/version"
 )
 
 type WebConsoleServerOptions struct {
@@ -204,6 +205,7 @@ func (o WebConsoleServerOptions) RunWebConsoleServer(stopCh <-chan struct{}) err
 	if err != nil {
 		return err
 	}
+	glog.Infof("OpenShift Web Console Version: %s", builtversion.Get().String())
 	return server.GenericAPIServer.PrepareRun().Run(stopCh)
 }
 
