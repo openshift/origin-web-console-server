@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"path"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/version"
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/features"
@@ -22,11 +24,14 @@ import (
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
 	genericmux "k8s.io/apiserver/pkg/server/mux"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	restclient "k8s.io/client-go/rest"
 
 	"github.com/openshift/api/webconsole/v1"
 	"github.com/openshift/origin-web-console-server/pkg/assets"
 	"github.com/openshift/origin-web-console-server/pkg/assets/java"
-	"github.com/openshift/origin-web-console-server/pkg/version"
+	builtversion "github.com/openshift/origin-web-console-server/pkg/version"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/kubernetes"
 )
 
 var (
@@ -60,6 +65,10 @@ const (
 type ExtraConfig struct {
 	Options   v1.WebConsoleConfiguration
 	PublicURL url.URL
+
+	KubeVersion                  string
+	OpenShiftVersion             string
+	TemplateServiceBrokerEnabled *bool
 }
 
 type AssetServerConfig struct {
@@ -76,7 +85,12 @@ type AssetServer struct {
 
 type completedConfig struct {
 	GenericConfig genericapiserver.CompletedConfig
-	ExtraConfig   *ExtraConfig
+
+	// ClientConfig holds the kubernetes client configuration.
+	// This value is set by RecommendedOptions.CoreAPI.ApplyTo called by RecommendedOptions.ApplyTo.
+	// By default in-cluster client config is used.
+	ClientConfig *restclient.Config
+	ExtraConfig  *ExtraConfig
 }
 
 type CompletedConfig struct {
@@ -84,8 +98,8 @@ type CompletedConfig struct {
 	*completedConfig
 }
 
-func NewAssetServerConfig(assetConfig v1.WebConsoleConfiguration) (*AssetServerConfig, error) {
-	publicURL, err := url.Parse(assetConfig.PublicURL)
+func NewAssetServerConfig(config v1.WebConsoleConfiguration) (*AssetServerConfig, error) {
+	publicURL, err := url.Parse(config.ClusterInfo.ConsolePublicURL)
 	if err != nil {
 		return nil, err
 	}
@@ -97,20 +111,64 @@ func NewAssetServerConfig(assetConfig v1.WebConsoleConfiguration) (*AssetServerC
 	return &AssetServerConfig{
 		GenericConfig: &genericapiserver.RecommendedConfig{Config: *genericConfig},
 		ExtraConfig: ExtraConfig{
-			Options:   assetConfig,
+			Options:   config,
 			PublicURL: *publicURL,
 		},
 	}, nil
 }
 
 // Complete fills in any fields not set that are required to have valid data. It's mutating the receiver.
-func (c *AssetServerConfig) Complete() completedConfig {
+func (c *AssetServerConfig) Complete() (completedConfig, error) {
 	cfg := completedConfig{
 		c.GenericConfig.Complete(),
+		c.GenericConfig.ClientConfig,
 		&c.ExtraConfig,
 	}
 
-	return cfg
+	// In order to build the asset server, we need information that we can only retrieve from the master.
+	// We do this once during construction at the moment, but a clever person could set up a watch or poll technique
+	// to dynamically reload these bits of config without having the pod restart.
+	restClient, err := kubernetes.NewForConfig(c.GenericConfig.ClientConfig)
+	if err != nil {
+		return completedConfig{}, err
+	}
+	if len(cfg.ExtraConfig.KubeVersion) == 0 {
+		resultBytes, err := restClient.RESTClient().Get().AbsPath("/version").Do().Raw()
+		if err != nil {
+			return completedConfig{}, err
+		}
+		kubeVersion := &version.Info{}
+		if err := json.Unmarshal(resultBytes, kubeVersion); err != nil {
+			return completedConfig{}, err
+		}
+		cfg.ExtraConfig.KubeVersion = kubeVersion.GitVersion
+	}
+	if len(cfg.ExtraConfig.OpenShiftVersion) == 0 {
+		resultBytes, err := restClient.RESTClient().Get().AbsPath("/version/openshift").Do().Raw()
+		if err != nil {
+			return completedConfig{}, err
+		}
+		openshiftVersion := &version.Info{}
+		if err := json.Unmarshal(resultBytes, openshiftVersion); err != nil {
+			return completedConfig{}, err
+		}
+		cfg.ExtraConfig.OpenShiftVersion = openshiftVersion.GitVersion
+	}
+	if cfg.ExtraConfig.TemplateServiceBrokerEnabled == nil {
+		enabled := false
+		_, err := restClient.RESTClient().Get().AbsPath("/apis/servicecatalog.k8s.io/v1beta1/clusterservicebrokers/template-service-broker").Do().Raw()
+		if err == nil {
+			enabled = true
+		} else if errors.IsNotFound(err) {
+			enabled = false
+		} else {
+			return completedConfig{}, err
+		}
+
+		cfg.ExtraConfig.TemplateServiceBrokerEnabled = &enabled
+	}
+
+	return cfg, nil
 }
 
 func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget) (*AssetServer, error) {
@@ -165,37 +223,41 @@ func (c completedConfig) addAssets(serverMux *genericmux.PathRecorderMux) error 
 }
 
 func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorderMux) error {
-	masterURL, err := url.Parse(c.ExtraConfig.Options.MasterPublicURL)
+	masterURL, err := url.Parse(c.ExtraConfig.Options.ClusterInfo.MasterPublicURL)
 	if err != nil {
 		return err
 	}
 
 	// Generated web console config and server version
 	config := assets.WebConsoleConfig{
-		APIGroupAddr:      masterURL.Host,
-		APIGroupPrefix:    server.APIGroupPrefix,
-		MasterAddr:        masterURL.Host,
-		MasterPrefix:      "/oapi",
-		KubernetesAddr:    masterURL.Host,
-		KubernetesPrefix:  server.DefaultLegacyAPIPrefix,
-		OAuthAuthorizeURI: openShiftOAuthAuthorizeURL(masterURL.String()),
-		OAuthTokenURI:     openShiftOAuthTokenURL(masterURL.String()),
-		OAuthRedirectBase: c.ExtraConfig.Options.PublicURL,
-		OAuthClientID:     OpenShiftWebConsoleClientID,
-		LogoutURI:         c.ExtraConfig.Options.LogoutURL,
-		LoggingURL:        c.ExtraConfig.Options.LoggingPublicURL,
-		MetricsURL:        c.ExtraConfig.Options.MetricsPublicURL,
+		APIGroupAddr:             masterURL.Host,
+		APIGroupPrefix:           server.APIGroupPrefix,
+		MasterAddr:               masterURL.Host,
+		MasterPrefix:             "/oapi",
+		KubernetesAddr:           masterURL.Host,
+		KubernetesPrefix:         server.DefaultLegacyAPIPrefix,
+		OAuthAuthorizeURI:        openShiftOAuthAuthorizeURL(masterURL.String()),
+		OAuthTokenURI:            openShiftOAuthTokenURL(masterURL.String()),
+		OAuthRedirectBase:        c.ExtraConfig.Options.ClusterInfo.ConsolePublicURL,
+		OAuthClientID:            OpenShiftWebConsoleClientID,
+		LogoutURI:                c.ExtraConfig.Options.ClusterInfo.LogoutPublicURL,
+		LoggingURL:               c.ExtraConfig.Options.ClusterInfo.LoggingPublicURL,
+		MetricsURL:               c.ExtraConfig.Options.ClusterInfo.MetricsPublicURL,
+		InactivityTimeoutMinutes: c.ExtraConfig.Options.Features.InactivityTimeoutMinutes,
 	}
 
-	// TODO this looks incorrect.  I'm guessing that we need to contact the master and locate the actual versions
-	oVersionInfo := version.Get()
+	if c.ExtraConfig.TemplateServiceBrokerEnabled != nil {
+		config.TemplateServiceBrokerEnabled = *c.ExtraConfig.TemplateServiceBrokerEnabled
+	}
+
 	versionInfo := assets.WebConsoleVersion{
-		KubernetesVersion: oVersionInfo.GitVersion,
-		OpenShiftVersion:  oVersionInfo.GitVersion,
+		KubernetesVersion: c.ExtraConfig.KubeVersion,
+		OpenShiftVersion:  c.ExtraConfig.OpenShiftVersion,
+		ConsoleVersion:    builtversion.Get().String(),
 	}
 
 	extensionProps := assets.WebConsoleExtensionProperties{
-		ExtensionProperties: extensionPropertyArray(c.ExtraConfig.Options.ExtensionProperties),
+		ExtensionProperties: extensionPropertyArray(c.ExtraConfig.Options.Extensions.Properties),
 	}
 	configPath := path.Join(c.ExtraConfig.PublicURL.Path, "config.js")
 	configHandler, err := assets.GeneratedConfigHandler(config, versionInfo, extensionProps)
@@ -223,14 +285,14 @@ func (c completedConfig) buildAssetHandler() (http.Handler, error) {
 	}
 
 	var err error
-	handler, err = assets.HTML5ModeHandler(c.ExtraConfig.PublicURL.Path, subcontextMap, c.ExtraConfig.Options.ExtensionScripts, c.ExtraConfig.Options.ExtensionStylesheets, handler, assetFunc)
+	handler, err = assets.HTML5ModeHandler(c.ExtraConfig.PublicURL.Path, subcontextMap, c.ExtraConfig.Options.Extensions.ScriptURLs, c.ExtraConfig.Options.Extensions.StylesheetURLs, handler, assetFunc)
 	if err != nil {
 		return nil, err
 	}
 
 	// Cache control should happen after all Vary headers are added, but before
 	// any asset related routing (HTML5ModeHandler and FileServer)
-	handler = assets.CacheControlHandler(version.Get().GitCommit, handler)
+	handler = assets.CacheControlHandler(builtversion.Get().GitCommit, handler)
 
 	handler = assets.SecurityHeadersHandler(handler)
 

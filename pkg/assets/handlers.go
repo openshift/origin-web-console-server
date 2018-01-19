@@ -192,13 +192,15 @@ func addExtensionStylesheets(content []byte, extensionStylesheets []string) []by
 var versionTemplate = template.Must(template.New("webConsoleVersion").Parse(`
 window.OPENSHIFT_VERSION = {
   openshift: "{{ .OpenShiftVersion | js}}",
-  kubernetes: "{{ .KubernetesVersion | js}}"
+  kubernetes: "{{ .KubernetesVersion | js}}",
+  console: "{{ .ConsoleVersion | js }}"
 };
 `))
 
 type WebConsoleVersion struct {
 	KubernetesVersion string
 	OpenShiftVersion  string
+	ConsoleVersion    string
 }
 
 var extensionPropertiesTemplate = template.Must(template.New("webConsoleExtensionProperties").Parse(`
@@ -248,7 +250,9 @@ window.OPENSHIFT_CONFIG = {
   },
   {{ end }}
   loggingURL: "{{ .LoggingURL | js}}",
-  metricsURL: "{{ .MetricsURL | js}}"
+  metricsURL: "{{ .MetricsURL | js}}",
+  templateServiceBrokerEnabled: {{ .TemplateServiceBrokerEnabled }},
+  inactivityTimeoutMinutes: {{ .InactivityTimeoutMinutes }}
 };
 `))
 
@@ -286,6 +290,11 @@ type WebConsoleConfig struct {
 	//   CPURequestToLimitPercent
 	//   MemoryRequestToLimitPercent
 	LimitRequestOverrides *ClusterResourceOverrideConfig
+	// TemplateServiceBrokerEnabled tells the web console not to show normal templates to avoid duplicates items in the catalog for templates and template service broker service classes.
+	TemplateServiceBrokerEnabled bool
+	// InactivityTimeoutMinutes is the number of minutes of inactivity before you are automatically logged out of
+	// the web console. If set to 0, inactivity timeout is disabled.
+	InactivityTimeoutMinutes int64
 }
 
 // ClusterResourceOverrideConfig is the configuration for the ClusterResourceOverride
