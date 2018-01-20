@@ -1,5 +1,5 @@
 hash: e23e6fa65b494a2ce1a7de97a14ac4b335f2ebb8c9ac5fc7098a6b660b222f67
-updated: 2018-01-15T11:29:33.946586612-05:00
+updated: 2018-01-19T15:01:34.923114-05:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -8,7 +8,7 @@ imports:
   subpackages:
   - quantile
 - name: github.com/certifi/gocertifi
-  version: a4ab0227d360091084658029ec8ae45f989fba3e
+  version: deb3ae2ef2610fde3330947281941c562861188b
 - name: github.com/coreos/etcd
   version: 0520cb9304cb2385f7e72b8bc02d6e4d3257158a
   subpackages:
@@ -112,7 +112,7 @@ imports:
   - proto
   - sortkeys
 - name: github.com/golang/glog
-  version: 44145f04b68cf362d9c4df2182967c2275eaefed
+  version: 23def4e6c14b4da8ac2ed8007337bc5eb5007998
 - name: github.com/golang/protobuf
   version: 1643683e1b54a9e88ad26d98f81400c8c9d9f4f9
   subpackages:
@@ -178,7 +178,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: 3477075c1cb46b9635b4fda2fc08237cf37ce200
+  version: 0d921e363e951d89f583292c60d013c318df64dc
   subpackages:
   - webconsole/v1
 - name: github.com/pborman/uuid
@@ -186,9 +186,9 @@ imports:
 - name: github.com/peterbourgon/diskv
   version: 5f041e8faa004a95c88a202771f4cc3e991971e6
 - name: github.com/pkg/errors
-  version: 645ef00459ed84a119197bfb8d8205042c6df63d
+  version: a22138067af1c4942683050411a841ade67fe1eb
 - name: github.com/pkg/profile
-  version: 5b67d428864e92711fcbd2f8629456121a56d91f
+  version: c795610ec6e479e5795f7852db65ea15073674a6
 - name: github.com/prometheus/client_golang
   version: e7e903064f5e9eb5da98208bae10b475d4db0f8c
   subpackages:
@@ -212,7 +212,7 @@ imports:
 - name: github.com/PuerkitoBio/urlesc
   version: 5bd2802263f21d8788851d5305584c82a5c75d7e
 - name: github.com/spf13/cobra
-  version: f62e98d28ab7ad31d707ba837a966378465c7b57
+  version: 7c674d9e72017ed25f6d2b5e497a1368086b6a6f
 - name: github.com/spf13/pflag
   version: 9ff6c6923cfffbcd502984b8e0c80539a94968b7
 - name: github.com/ugorji/go

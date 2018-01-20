@@ -230,20 +230,21 @@ func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorder
 
 	// Generated web console config and server version
 	config := assets.WebConsoleConfig{
-		APIGroupAddr:             masterURL.Host,
-		APIGroupPrefix:           server.APIGroupPrefix,
-		MasterAddr:               masterURL.Host,
-		MasterPrefix:             "/oapi",
-		KubernetesAddr:           masterURL.Host,
-		KubernetesPrefix:         server.DefaultLegacyAPIPrefix,
-		OAuthAuthorizeURI:        openShiftOAuthAuthorizeURL(masterURL.String()),
-		OAuthTokenURI:            openShiftOAuthTokenURL(masterURL.String()),
-		OAuthRedirectBase:        c.ExtraConfig.Options.ClusterInfo.ConsolePublicURL,
-		OAuthClientID:            OpenShiftWebConsoleClientID,
-		LogoutURI:                c.ExtraConfig.Options.ClusterInfo.LogoutPublicURL,
-		LoggingURL:               c.ExtraConfig.Options.ClusterInfo.LoggingPublicURL,
-		MetricsURL:               c.ExtraConfig.Options.ClusterInfo.MetricsPublicURL,
-		InactivityTimeoutMinutes: c.ExtraConfig.Options.Features.InactivityTimeoutMinutes,
+		APIGroupAddr:                    masterURL.Host,
+		APIGroupPrefix:                  server.APIGroupPrefix,
+		MasterAddr:                      masterURL.Host,
+		MasterPrefix:                    "/oapi",
+		KubernetesAddr:                  masterURL.Host,
+		KubernetesPrefix:                server.DefaultLegacyAPIPrefix,
+		OAuthAuthorizeURI:               openShiftOAuthAuthorizeURL(masterURL.String()),
+		OAuthTokenURI:                   openShiftOAuthTokenURL(masterURL.String()),
+		OAuthRedirectBase:               c.ExtraConfig.Options.ClusterInfo.ConsolePublicURL,
+		OAuthClientID:                   OpenShiftWebConsoleClientID,
+		LogoutURI:                       c.ExtraConfig.Options.ClusterInfo.LogoutPublicURL,
+		LoggingURL:                      c.ExtraConfig.Options.ClusterInfo.LoggingPublicURL,
+		MetricsURL:                      c.ExtraConfig.Options.ClusterInfo.MetricsPublicURL,
+		InactivityTimeoutMinutes:        c.ExtraConfig.Options.Features.InactivityTimeoutMinutes,
+		ClusterResourceOverridesEnabled: c.ExtraConfig.Options.Features.ClusterResourceOverridesEnabled,
 	}
 
 	if c.ExtraConfig.TemplateServiceBrokerEnabled != nil {
