@@ -286,14 +286,22 @@ func (c completedConfig) buildAssetHandler() (http.Handler, error) {
 	}
 
 	var err error
-	handler, err = assets.HTML5ModeHandler(c.ExtraConfig.PublicURL.Path, subcontextMap, c.ExtraConfig.Options.Extensions.ScriptURLs, c.ExtraConfig.Options.Extensions.StylesheetURLs, handler, assetFunc)
+	version := builtversion.Get().GitCommit
+
+	// This handler must be in the chain after GzipHandler so that GzipHandler can add the Vary
+	// response header first. ETags should be different when the response uses gzip.
+	handler, err = assets.HTML5ModeHandler(
+		c.ExtraConfig.PublicURL.Path,
+		subcontextMap,
+		c.ExtraConfig.Options.Extensions.ScriptURLs,
+		c.ExtraConfig.Options.Extensions.StylesheetURLs,
+		version,
+		handler,
+		assetFunc,
+	)
 	if err != nil {
 		return nil, err
 	}
-
-	// Cache control should happen after all Vary headers are added, but before
-	// any asset related routing (HTML5ModeHandler and FileServer)
-	handler = assets.CacheControlHandler(builtversion.Get().GitCommit, handler)
 
 	handler = assets.SecurityHeadersHandler(handler)
 

@@ -72,28 +72,6 @@ func generateEtag(r *http.Request, version string, varyHeaders []string) string 
 	return fmt.Sprintf("W/\"%s_%s\"", version, hex.EncodeToString([]byte(varyHeaderValues)))
 }
 
-func CacheControlHandler(version string, h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		vary := w.Header().Get("Vary")
-		varyHeaders := []string{}
-		if vary != "" {
-			varyHeaders = varyHeaderRegexp.Split(vary, -1)
-		}
-		etag := generateEtag(r, version, varyHeaders)
-
-		if r.Header.Get("If-None-Match") == etag {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
-
-		// Clients must revalidate their cached copy every time.
-		w.Header().Add("Cache-Control", "public, max-age=0, must-revalidate")
-		w.Header().Add("ETag", etag)
-		h.ServeHTTP(w, r)
-
-	})
-}
-
 type LongestToShortest []string
 
 func (s LongestToShortest) Len() int {
@@ -113,7 +91,7 @@ func (s LongestToShortest) Less(i, j int) bool {
 //
 // subcontextMap is a map of keys (subcontexts, no leading or trailing slashes) to the asset path (no
 // leading slash) to serve for that subcontext if a resource that does not exist is requested
-func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, extensionScripts []string, extensionStylesheets []string, h http.Handler, getAsset AssetFunc) (http.Handler, error) {
+func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, extensionScripts []string, extensionStylesheets []string, version string, h http.Handler, getAsset AssetFunc) (http.Handler, error) {
 	subcontextData := map[string][]byte{}
 	subcontexts := []string{}
 
@@ -149,18 +127,37 @@ func HTML5ModeHandler(contextRoot string, subcontextMap map[string]string, exten
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		urlPath := strings.TrimPrefix(r.URL.Path, "/")
 		if _, err := getAsset(urlPath); err != nil {
-			// find the index we want to serve instead
+			// Find the index we want to serve instead
 			for _, subcontext := range subcontexts {
 				prefix := subcontext
 				if subcontext != "" {
 					prefix += "/"
 				}
 				if urlPath == subcontext || strings.HasPrefix(urlPath, prefix) {
+					// This is dynamic content since the extensions can change the HTML. Don't cache.
+					w.Header().Add("Cache-Control", "no-cache, no-store")
 					w.Write(subcontextData[subcontext])
 					return
 				}
 			}
 		}
+
+		// Only handle ETags for content that won't change. The index.html responses can have scripts and stylesheets injected.
+		vary := w.Header().Get("Vary")
+		varyHeaders := []string{}
+		if vary != "" {
+			varyHeaders = varyHeaderRegexp.Split(vary, -1)
+		}
+		etag := generateEtag(r, version, varyHeaders)
+
+		if r.Header.Get("If-None-Match") == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+
+		// Clients must revalidate their cached copy every time.
+		w.Header().Add("Cache-Control", "public, max-age=0, must-revalidate")
+		w.Header().Add("ETag", etag)
 		h.ServeHTTP(w, r)
 	}), nil
 }
