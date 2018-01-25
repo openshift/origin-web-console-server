@@ -83,7 +83,7 @@ func NewCommandStartWebConsoleServer(out, errOut io.Writer, stopCh <-chan struct
 }
 
 func (o WebConsoleServerOptions) Validate(args []string) error {
-	if o.WebConsoleConfig == nil {
+	if o.WebConsoleConfig != nil {
 		return fmt.Errorf("missing config: specify --config")
 	}
 
