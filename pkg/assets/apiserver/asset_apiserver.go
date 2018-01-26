@@ -106,6 +106,7 @@ func NewAssetServerConfig(config v1.WebConsoleConfiguration) (*AssetServerConfig
 
 	genericConfig := genericapiserver.NewConfig(codecs)
 	genericConfig.EnableDiscovery = false
+	genericConfig.EnableMetrics = true
 	genericConfig.BuildHandlerChainFunc = buildHandlerChainForAssets(publicURL.Path)
 
 	return &AssetServerConfig{
