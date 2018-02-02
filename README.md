@@ -6,8 +6,6 @@ The API server for the [OpenShift web console](https://github.com/openshift/orig
 
 [![Build Status](https://travis-ci.org/openshift/origin-web-console-server.svg?branch=master)](https://travis-ci.org/openshift/origin-web-console-server)
 
-**Under Construction**
-
 The web console server runs as a pod on the platform. The OpenShift master
 proxies requests from the web console context root, typically `/console/`, to
 the server running in the pod. The pod then serves the static HTML, JavaScript,
@@ -38,6 +36,24 @@ container with this command
 
 ```
 $ OS_BUILD_ENV_PRESERVE=_output/local/bin hack/env make build-images
+```
+
+Installing the Console
+----------------------
+
+If you use [openshift-ansible](https://github.com/openshift/openshift-ansible)
+or run `oc cluster up`, the console will be installed for you. If you start
+OpenShift another way, you'll need to install the console template.
+
+Clone the [origin](https://github.com/openshift/origin) repository and
+edit the file `install/origin-web-console/console-config.yaml` for your
+cluster. Then run the commands:
+
+```
+$ oc login -u system:admin
+$ oc create namespace openshift-web-console
+$ oc process -f install/origin-web-console/rbac-template.yaml | oc auth reconcile -f -
+$ oc process -f install/origin-web-console/console-template.yaml -p "API_SERVER_CONFIG=$(cat install/origin-web-console/console-config.yaml)" | oc apply -n openshift-web-console -f -
 ```
 
 Updating Go Tooling
