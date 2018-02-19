@@ -1,7 +1,6 @@
 package apiserver
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"path"
@@ -15,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-	"k8s.io/apimachinery/pkg/version"
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/features"
@@ -24,14 +22,11 @@ import (
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
 	genericmux "k8s.io/apiserver/pkg/server/mux"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	restclient "k8s.io/client-go/rest"
 
 	"github.com/openshift/api/webconsole/v1"
 	"github.com/openshift/origin-web-console-server/pkg/assets"
 	"github.com/openshift/origin-web-console-server/pkg/assets/java"
 	builtversion "github.com/openshift/origin-web-console-server/pkg/version"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/client-go/kubernetes"
 )
 
 var (
@@ -65,10 +60,6 @@ const (
 type ExtraConfig struct {
 	Options   v1.WebConsoleConfiguration
 	PublicURL url.URL
-
-	KubeVersion                  string
-	OpenShiftVersion             string
-	TemplateServiceBrokerEnabled *bool
 }
 
 type AssetServerConfig struct {
@@ -85,12 +76,7 @@ type AssetServer struct {
 
 type completedConfig struct {
 	GenericConfig genericapiserver.CompletedConfig
-
-	// ClientConfig holds the kubernetes client configuration.
-	// This value is set by RecommendedOptions.CoreAPI.ApplyTo called by RecommendedOptions.ApplyTo.
-	// By default in-cluster client config is used.
-	ClientConfig *restclient.Config
-	ExtraConfig  *ExtraConfig
+	ExtraConfig   *ExtraConfig
 }
 
 type CompletedConfig struct {
@@ -119,57 +105,13 @@ func NewAssetServerConfig(config v1.WebConsoleConfiguration) (*AssetServerConfig
 }
 
 // Complete fills in any fields not set that are required to have valid data. It's mutating the receiver.
-func (c *AssetServerConfig) Complete() (completedConfig, error) {
+func (c *AssetServerConfig) Complete() completedConfig {
 	cfg := completedConfig{
 		c.GenericConfig.Complete(),
-		c.GenericConfig.ClientConfig,
 		&c.ExtraConfig,
 	}
 
-	// In order to build the asset server, we need information that we can only retrieve from the master.
-	// We do this once during construction at the moment, but a clever person could set up a watch or poll technique
-	// to dynamically reload these bits of config without having the pod restart.
-	restClient, err := kubernetes.NewForConfig(c.GenericConfig.ClientConfig)
-	if err != nil {
-		return completedConfig{}, err
-	}
-	if len(cfg.ExtraConfig.KubeVersion) == 0 {
-		resultBytes, err := restClient.RESTClient().Get().AbsPath("/version").Do().Raw()
-		if err != nil {
-			return completedConfig{}, err
-		}
-		kubeVersion := &version.Info{}
-		if err := json.Unmarshal(resultBytes, kubeVersion); err != nil {
-			return completedConfig{}, err
-		}
-		cfg.ExtraConfig.KubeVersion = kubeVersion.GitVersion
-	}
-	if len(cfg.ExtraConfig.OpenShiftVersion) == 0 {
-		resultBytes, err := restClient.RESTClient().Get().AbsPath("/version/openshift").Do().Raw()
-		if err != nil {
-			return completedConfig{}, err
-		}
-		openshiftVersion := &version.Info{}
-		if err := json.Unmarshal(resultBytes, openshiftVersion); err != nil {
-			return completedConfig{}, err
-		}
-		cfg.ExtraConfig.OpenShiftVersion = openshiftVersion.GitVersion
-	}
-	if cfg.ExtraConfig.TemplateServiceBrokerEnabled == nil {
-		enabled := false
-		_, err := restClient.RESTClient().Get().AbsPath("/apis/servicecatalog.k8s.io/v1beta1/clusterservicebrokers/template-service-broker").Do().Raw()
-		if err == nil {
-			enabled = true
-		} else if errors.IsNotFound(err) {
-			enabled = false
-		} else {
-			return completedConfig{}, err
-		}
-
-		cfg.ExtraConfig.TemplateServiceBrokerEnabled = &enabled
-	}
-
-	return cfg, nil
+	return cfg
 }
 
 func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget) (*AssetServer, error) {
@@ -248,14 +190,8 @@ func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorder
 		ClusterResourceOverridesEnabled: c.ExtraConfig.Options.Features.ClusterResourceOverridesEnabled,
 	}
 
-	if c.ExtraConfig.TemplateServiceBrokerEnabled != nil {
-		config.TemplateServiceBrokerEnabled = *c.ExtraConfig.TemplateServiceBrokerEnabled
-	}
-
 	versionInfo := assets.WebConsoleVersion{
-		KubernetesVersion: c.ExtraConfig.KubeVersion,
-		OpenShiftVersion:  c.ExtraConfig.OpenShiftVersion,
-		ConsoleVersion:    builtversion.Get().String(),
+		ConsoleVersion: builtversion.Get().String(),
 	}
 
 	extensionProps := assets.WebConsoleExtensionProperties{
