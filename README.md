@@ -52,7 +52,6 @@ cluster. Then run the commands:
 ```
 $ oc login -u system:admin
 $ oc create namespace openshift-web-console
-$ oc process -f install/origin-web-console/rbac-template.yaml | oc auth reconcile -f -
 $ oc process -f install/origin-web-console/console-template.yaml -p "API_SERVER_CONFIG=$(cat install/origin-web-console/console-config.yaml)" | oc apply -n openshift-web-console -f -
 ```
 
