@@ -25,14 +25,7 @@ To build the binary, run
 $ make
 ```
 
-To build the RPM and images, run
-
-```
-$ make build-images
-```
-
-If you are running on a non-Linux platform, you can build the images in a
-container with this command
+To build the RPM and origin-web-console image, run
 
 ```
 $ OS_BUILD_ENV_PRESERVE=_output/local/bin hack/env make build-images
@@ -60,3 +53,19 @@ Updating Go Tooling
 
 See https://github.com/openshift/release/tree/master/tools/hack/golang for
 instructions on how to update the Go tooling used by this project.
+
+Vendoring origin-web-console
+----------------------------
+
+A Jenkins job automatically vendors the dist files from origin-web-console into
+this repository periodically. Typically you don't need to manually vendor the
+console dist, but you might want to build an origin-web-console image with
+changes that haven't merged.
+
+To vendor the console manually, run `grunt build` in the origin-web-console
+repo to build the dist files with your changes, then run `make vendor-console`
+to vendor. For example:
+
+```
+$ GIT_REF=master CONSOLE_REPO_PATH=$HOME/git/origin-web-console COMMIT=1 make vendor-console
+```
