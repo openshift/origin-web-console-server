@@ -1,10 +1,11 @@
 package apiserver
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"path"
-	"strings"
 
 	"github.com/elazarl/go-bindata-assetfs"
 
@@ -22,6 +23,7 @@ import (
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
 	genericmux "k8s.io/apiserver/pkg/server/mux"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/openshift/api/webconsole/v1"
 	"github.com/openshift/origin-web-console-server/pkg/assets"
@@ -55,11 +57,19 @@ func init() {
 
 const (
 	OpenShiftWebConsoleClientID = "openshift-web-console"
+
+	// Discovery endpoint for OAuth 2.0 Authorization Server Metadata
+	// See IETF Draft:
+	// https://tools.ietf.org/html/draft-ietf-oauth-discovery-04#section-2
+	oauthMetadataEndpoint = "/.well-known/oauth-authorization-server"
 )
 
 type ExtraConfig struct {
 	Options   v1.WebConsoleConfiguration
 	PublicURL url.URL
+
+	OAuthAuthorizationEndpoint string
+	OAuthTokenEndpoint         string
 }
 
 type AssetServerConfig struct {
@@ -84,6 +94,11 @@ type CompletedConfig struct {
 	*completedConfig
 }
 
+type OAuthAuthorizationServerMetadata struct {
+	AuthorizationEndpoint string `json:"authorization_endpoint"`
+	TokenEndpoint         string `json:"token_endpoint"`
+}
+
 func NewAssetServerConfig(config v1.WebConsoleConfiguration) (*AssetServerConfig, error) {
 	publicURL, err := url.Parse(config.ClusterInfo.ConsolePublicURL)
 	if err != nil {
@@ -105,13 +120,34 @@ func NewAssetServerConfig(config v1.WebConsoleConfiguration) (*AssetServerConfig
 }
 
 // Complete fills in any fields not set that are required to have valid data. It's mutating the receiver.
-func (c *AssetServerConfig) Complete() completedConfig {
+func (c *AssetServerConfig) Complete() (completedConfig, error) {
 	cfg := completedConfig{
 		c.GenericConfig.Complete(),
 		&c.ExtraConfig,
 	}
 
-	return cfg
+	restClient, err := kubernetes.NewForConfig(c.GenericConfig.ClientConfig)
+	if err != nil {
+		return completedConfig{}, err
+	}
+
+	// Discover the published OAuth endpoints from the well-known URL.
+	resultBytes, err := restClient.RESTClient().Get().AbsPath(oauthMetadataEndpoint).Do().Raw()
+	if err != nil {
+		return completedConfig{}, err
+	}
+	metadata := &OAuthAuthorizationServerMetadata{}
+	if err := json.Unmarshal(resultBytes, metadata); err != nil {
+		return completedConfig{}, err
+	}
+	if len(metadata.AuthorizationEndpoint) == 0 || len(metadata.TokenEndpoint) == 0 {
+		err := fmt.Errorf("authorization or token endpoint missing from OAuth authorization server metadata (authorization endpoint: %q, token endpoint: %q)", metadata.AuthorizationEndpoint, metadata.TokenEndpoint)
+		return completedConfig{}, err
+	}
+	cfg.ExtraConfig.OAuthAuthorizationEndpoint = metadata.AuthorizationEndpoint
+	cfg.ExtraConfig.OAuthTokenEndpoint = metadata.TokenEndpoint
+
+	return cfg, nil
 }
 
 func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget) (*AssetServer, error) {
@@ -179,8 +215,8 @@ func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorder
 		MasterPrefix:                    "/oapi",
 		KubernetesAddr:                  masterURL.Host,
 		KubernetesPrefix:                server.DefaultLegacyAPIPrefix,
-		OAuthAuthorizeURI:               openShiftOAuthAuthorizeURL(masterURL.String()),
-		OAuthTokenURI:                   openShiftOAuthTokenURL(masterURL.String()),
+		OAuthAuthorizeURI:               c.ExtraConfig.OAuthAuthorizationEndpoint,
+		OAuthTokenURI:                   c.ExtraConfig.OAuthTokenEndpoint,
 		OAuthRedirectBase:               c.ExtraConfig.Options.ClusterInfo.ConsolePublicURL,
 		OAuthClientID:                   OpenShiftWebConsoleClientID,
 		LogoutURI:                       c.ExtraConfig.Options.ClusterInfo.LogoutPublicURL,
@@ -272,20 +308,4 @@ func WithAssetServerRedirect(handler http.Handler, assetPublicURL string) http.H
 		// Dispatch to the next handler
 		handler.ServeHTTP(w, req)
 	})
-}
-
-const (
-	OpenShiftOAuthAPIPrefix = "/oauth"
-	AuthorizePath           = "/authorize"
-	TokenPath               = "/token"
-)
-
-func openShiftOAuthAuthorizeURL(masterAddr string) string {
-	return openShiftOAuthURL(masterAddr, AuthorizePath)
-}
-func openShiftOAuthTokenURL(masterAddr string) string {
-	return openShiftOAuthURL(masterAddr, TokenPath)
-}
-func openShiftOAuthURL(masterAddr, oauthEndpoint string) string {
-	return strings.TrimRight(masterAddr, "/") + path.Join(OpenShiftOAuthAPIPrefix, oauthEndpoint)
 }

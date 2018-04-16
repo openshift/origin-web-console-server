@@ -172,6 +172,9 @@ func (o WebConsoleServerOptions) Config() (*webconsoleserver.AssetServerConfig, 
 	if err := secureServingOptions.ApplyTo(&serverConfig.GenericConfig.Config); err != nil {
 		return nil, err
 	}
+	if err := genericapiserveroptions.NewCoreAPIOptions().ApplyTo(serverConfig.GenericConfig); err != nil {
+		return nil, err
+	}
 	if err := o.Audit.ApplyTo(&serverConfig.GenericConfig.Config); err != nil {
 		return nil, err
 	}
@@ -194,7 +197,11 @@ func (o WebConsoleServerOptions) RunWebConsoleServer(stopCh <-chan struct{}) err
 		return err
 	}
 
-	server, err := config.Complete().New(genericapiserver.EmptyDelegate)
+	completedConfig, err := config.Complete()
+	if err != nil {
+		return err
+	}
+	server, err := completedConfig.New(genericapiserver.EmptyDelegate)
 	if err != nil {
 		return err
 	}
