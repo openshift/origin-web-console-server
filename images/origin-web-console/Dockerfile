@@ -2,9 +2,11 @@
 # This is the integrated Origin Web Console Server. It is configured to
 # publish metadata to OpenShift to provide automatic management of images on push.
 #
-# The standard name for this image is openshift/origin-docker-registry
+# The standard name for this image is openshift/origin-web-console
 #
 FROM openshift/origin-base
+
+ENV container=oci
 
 RUN INSTALL_PKGS="origin-web-console" && \
     yum --enablerepo=origin-local-release install -y ${INSTALL_PKGS} && \
