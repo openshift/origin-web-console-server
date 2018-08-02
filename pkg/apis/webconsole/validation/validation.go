@@ -58,6 +58,13 @@ func validateClusterInfo(config v1.ClusterInfo, fldPath *field.Path) ValidationR
 		validationResults.AddWarnings(field.Invalid(fldPath.Child("metricsPublicURL"), "", "required to view cluster metrics in the console"))
 	}
 
+	if len(config.AdminConsolePublicURL) > 0 {
+		_, urlErrs := ValidateSecureURL(config.AdminConsolePublicURL, fldPath.Child("adminConsolePublicURL"))
+		if len(urlErrs) > 0 {
+			validationResults.AddErrors(urlErrs...)
+		}
+	}
+
 	if len(config.LogoutPublicURL) > 0 {
 		_, urlErrs := ValidateURL(config.LogoutPublicURL, fldPath.Child("logoutPublicURL"))
 		if len(urlErrs) > 0 {

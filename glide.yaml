@@ -3,7 +3,7 @@ import:
 - package: github.com/jteeuwen/go-bindata
   version: a0ff2567cfb70903282db057e799fd826784d41d
 - package: github.com/openshift/api
-  version: master
+  version: release-3.9
 - package: k8s.io/apimachinery
   version: kubernetes-1.9.1
 - package: k8s.io/apiserver
