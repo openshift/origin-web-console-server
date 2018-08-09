@@ -224,6 +224,7 @@ func (c *completedConfig) addWebConsoleConfig(serverMux *genericmux.PathRecorder
 		MetricsURL:                      c.ExtraConfig.Options.ClusterInfo.MetricsPublicURL,
 		InactivityTimeoutMinutes:        c.ExtraConfig.Options.Features.InactivityTimeoutMinutes,
 		ClusterResourceOverridesEnabled: c.ExtraConfig.Options.Features.ClusterResourceOverridesEnabled,
+		AdminConsoleURL:                 c.ExtraConfig.Options.ClusterInfo.AdminConsolePublicURL,
 	}
 
 	versionInfo := assets.WebConsoleVersion{
